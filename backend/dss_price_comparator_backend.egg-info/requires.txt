@@ -1,0 +1,10 @@
+fastapi<1.0,>=0.110
+uvicorn[standard]<1.0,>=0.27
+pydantic-settings<3.0,>=2.2
+sqlalchemy<3.0,>=2.0
+aiosqlite<1.0,>=0.20
+
+[dev]
+pytest<9.0,>=8.0
+pytest-asyncio<1.0,>=0.23
+ruff<1.0,>=0.4
