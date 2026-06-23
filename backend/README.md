@@ -79,3 +79,42 @@ La documentación automática de FastAPI estará disponible en `http://127.0.0.1
 - Implementar scraping.
 - Implementar pipeline ETL.
 - Implementar ranking multicriterio.
+
+## Migraciones de base de datos
+
+Configura `DATABASE_URL` con una URL PostgreSQL asíncrona. Por ejemplo, en PowerShell:
+
+```powershell
+$env:DATABASE_URL = "postgresql+asyncpg://dss_user:change_me@localhost:5432/price_dss"
+```
+
+Alembic adapta automáticamente el driver `asyncpg` a `psycopg` para ejecutar migraciones. Desde `backend`, usa:
+
+```bash
+alembic revision --autogenerate -m "create initial price dss schema"
+alembic upgrade head
+alembic downgrade -1
+```
+
+## Seed inicial
+
+Aplica primero las migraciones y luego carga los datos de prueba para Comodoro Rivadavia y Rada Tilly:
+
+```bash
+alembic upgrade head
+python scripts/seed_initial_data.py
+```
+
+También puede ejecutarse con `python -m scripts.seed_initial_data`. El seed es idempotente y usa una fecha de relevamiento fija para no duplicar precios históricos.
+
+## Unit of Work
+
+La unidad de trabajo agrupa repositorios que comparten una sesión y centraliza el `commit` o `rollback`. Los repositorios solo hacen `flush`; los futuros casos de uso decidirán cuándo confirmar la transacción.
+
+```python
+async with get_unit_of_work() as uow:
+    products = await uow.products.search_by_name("coca")
+    await uow.commit()
+```
+
+Para una prueba de solo lectura de la conexión, ejecuta `python scripts/test_uow_connection.py` después de aplicar las migraciones.

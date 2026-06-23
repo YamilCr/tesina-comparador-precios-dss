@@ -4,11 +4,13 @@ Version: 0.1.0
 Summary: Backend base para un DSS de comparación de precios de supermercados.
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
+Requires-Dist: alembic<2.0,>=1.13
 Requires-Dist: fastapi<1.0,>=0.110
 Requires-Dist: uvicorn[standard]<1.0,>=0.27
 Requires-Dist: pydantic-settings<3.0,>=2.2
 Requires-Dist: sqlalchemy<3.0,>=2.0
-Requires-Dist: aiosqlite<1.0,>=0.20
+Requires-Dist: asyncpg<1.0,>=0.29
+Requires-Dist: psycopg[binary]<4.0,>=3.1
 Provides-Extra: dev
 Requires-Dist: pytest<9.0,>=8.0; extra == "dev"
 Requires-Dist: pytest-asyncio<1.0,>=0.23; extra == "dev"
@@ -95,3 +97,19 @@ La documentación automática de FastAPI estará disponible en `http://127.0.0.1
 - Implementar scraping.
 - Implementar pipeline ETL.
 - Implementar ranking multicriterio.
+
+## Migraciones de base de datos
+
+Configura `DATABASE_URL` con una URL PostgreSQL asíncrona. Por ejemplo, en PowerShell:
+
+```powershell
+$env:DATABASE_URL = "postgresql+asyncpg://dss_user:change_me@localhost:5432/price_dss"
+```
+
+Alembic adapta automáticamente el driver `asyncpg` a `psycopg` para ejecutar migraciones. Desde `backend`, usa:
+
+```bash
+alembic revision --autogenerate -m "create initial price dss schema"
+alembic upgrade head
+alembic downgrade -1
+```
