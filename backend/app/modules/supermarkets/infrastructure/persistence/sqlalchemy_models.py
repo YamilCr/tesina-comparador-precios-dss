@@ -108,6 +108,10 @@ class SupermarketModel(Base):
         "ProductSourceModel",
         back_populates="supermarket",
     )
+    scraping_sources: Mapped[list["ScrapingSourceModel"]] = relationship(
+        "ScrapingSourceModel",
+        back_populates="supermarket",
+    )
 
 
 class BranchModel(Base):

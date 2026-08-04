@@ -1,1 +1,5 @@
-"""Adaptadores HTTP del catálogo; no registra endpoints en esta etapa."""
+"""Adaptadores HTTP para exponer operaciones de catálogo."""
+
+from .routes import router
+
+__all__ = ["router"]

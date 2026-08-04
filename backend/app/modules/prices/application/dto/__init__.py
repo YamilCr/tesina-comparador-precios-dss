@@ -1,1 +1,7 @@
-"""Objetos de transferencia de datos usados por los casos de uso de precios."""
+"""Objetos de transferencia de datos para consultas de precios."""
+
+from app.modules.prices.application.commands import BasketPriceQuery, CurrentPriceQuery
+
+from .price_dto import PriceDTO
+
+__all__ = ["BasketPriceQuery", "CurrentPriceQuery", "PriceDTO"]

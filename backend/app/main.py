@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api_v1 import router as api_v1_router
 from app.config import get_settings
+from app.shared.interfaces.http import register_error_handlers
 
 
 def create_app() -> FastAPI:
@@ -23,6 +24,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
+    register_error_handlers(app)
     app.include_router(api_v1_router)
     return app
 

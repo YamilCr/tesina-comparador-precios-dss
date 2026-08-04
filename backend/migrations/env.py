@@ -35,6 +35,9 @@ def get_database_url() -> str:
     asyncpg_prefix = "postgresql+asyncpg://"
     if database_url.startswith(asyncpg_prefix):
         return database_url.replace(asyncpg_prefix, "postgresql+psycopg://", 1)
+    aiosqlite_prefix = "sqlite+aiosqlite://"
+    if database_url.startswith(aiosqlite_prefix):
+        return database_url.replace(aiosqlite_prefix, "sqlite://", 1)
     return database_url
 
 

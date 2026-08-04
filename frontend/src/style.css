@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply m-0 min-w-[320px] bg-slate-50 font-sans text-slate-900 antialiased;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-4 ring-sky-300 ring-offset-2;
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950;
+  }
+
+  .nav-link.router-link-active {
+    @apply bg-white text-slate-950 shadow-sm;
+  }
+
+  .glass-card {
+    @apply border border-white/70 bg-white/65 shadow-glass backdrop-blur-xl;
+  }
+
+  .page-shell {
+    @apply min-h-screen bg-[radial-gradient(circle_at_12%_2%,rgba(186,230,253,0.75),transparent_28%),radial-gradient(circle_at_90%_10%,rgba(219,234,254,0.9),transparent_26%),#f8fafc];
+  }
+
+  .section-kicker {
+    @apply inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/70 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-sky-700;
+  }
+
+  .reveal-on-scroll {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(1.75rem) scale(0.985);
+    transition:
+      opacity 680ms ease,
+      filter 680ms ease,
+      transform 680ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+    will-change: opacity, filter, transform;
+  }
+
+  .reveal-on-scroll.is-revealed {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .reveal-on-scroll {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    transition: none;
+  }
+}

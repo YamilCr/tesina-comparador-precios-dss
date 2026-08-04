@@ -1,1 +1,6 @@
-"""Entidades para fuentes, productos crudos, precios extraídos y resultados."""
+"""Entidades de dominio para fuentes y corridas de ingesta."""
+
+from .scraping_run import ScrapingRun
+from .scraping_source import ScrapingSource
+
+__all__ = ["ScrapingRun", "ScrapingSource"]

@@ -1,1 +1,5 @@
-"""Adaptadores HTTP de precios; no registra endpoints en esta etapa."""
+"""Adaptadores HTTP para exponer operaciones de precios."""
+
+from .routes import router
+
+__all__ = ["router"]

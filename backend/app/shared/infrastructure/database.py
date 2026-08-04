@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from app.shared.infrastructure import model_registry as _model_registry  # noqa: F401
 from app.shared.infrastructure.settings import Settings, get_settings
 
 

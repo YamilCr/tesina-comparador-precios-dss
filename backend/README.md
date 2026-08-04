@@ -2,59 +2,63 @@
 
 ## Objetivo
 
-Este backend pertenece a un sistema de apoyo a decisiones (DSS) para comparar precios de supermercados en función de la ubicación del usuario. El sistema permitirá buscar productos, armar una canasta temporal, calcular precios por supermercado, calcular la distancia a las sucursales y generar un ranking multicriterio.
+Backend de un sistema de apoyo a decisiones (DSS) para comparar precios de
+supermercados segun la ubicacion del usuario. El MVP permite buscar productos,
+armar una canasta temporal, consultar precios por sucursal, calcular distancias y
+generar un ranking multicriterio.
 
-## Arquitectura usada
+## Arquitectura
 
-El proyecto usa un monolito modular con principios de Clean Architecture y Arquitectura Hexagonal. Cada módulo agrupa una responsabilidad funcional y mantiene sus límites de dominio, aplicación, infraestructura e interfaces.
+El proyecto usa un monolito modular con principios de Clean Architecture y
+Arquitectura Hexagonal. Cada modulo mantiene separadas sus capas:
 
-## Capas principales
+- `domain`: entidades, objetos de valor, puertos y servicios de dominio.
+- `application`: casos de uso, comandos y DTOs.
+- `infrastructure`: SQLite/PostgreSQL, SQLAlchemy, scrapers, ETL y scheduler.
+- `interfaces`: entradas externas como HTTP y CLI.
 
-- `domain`: contiene entidades, objetos de valor, puertos y servicios de dominio. No debe depender de frameworks ni infraestructura.
-- `application`: contiene casos de uso, comandos y DTOs. Coordina las reglas de negocio.
-- `infrastructure`: contiene adaptadores concretos como PostgreSQL, SQLAlchemy, scrapers, ETL y scheduler.
-- `interfaces`: contiene entradas externas como HTTP y CLI.
+El dominio no depende de FastAPI, SQLAlchemy, SQLite, PostgreSQL ni herramientas externas.
+Las dependencias apuntan hacia el dominio.
 
-## Módulos principales
+## Modulos
 
-| Módulo | Responsabilidad |
+| Modulo | Responsabilidad |
 | --- | --- |
-| `catalog` | Productos, categorías, marcas y productos por fuente. |
+| `catalog` | Productos, categorias, marcas y productos por fuente. |
 | `supermarkets` | Supermercados, sucursales, ciudades y provincias. |
-| `prices` | Precios actuales, históricos y comparación. |
-| `basket` | Canasta temporal del usuario anónimo. |
-| `geo` | Coordenadas y cálculo de distancia. |
+| `prices` | Precios actuales, snapshots e historial. |
+| `basket` | Canasta temporal de usuario anonimo. |
+| `geo` | Coordenadas y calculo de distancia. |
 | `decision` | Modelo multicriterio DSS. |
-| `ingestion` | Scraping y ETL. |
+| `ingestion` | Fuentes, auditoria de scraping y futuro ETL. |
 
-## Módulos excluidos por ahora
+## Alcance del MVP
 
-Por ahora no se incluye:
+Incluido:
 
-- `users`
-- `auth`
-- `roles`
-- `permissions`
-- `sessions`
-- `saved_baskets`
-- `user_preferences`
+- Catalogo, supermercados, sucursales y precios.
+- Canasta temporal no persistida.
+- Ranking DSS en memoria.
+- Seed inicial para datos de prueba.
+- Auditoria minima de ingestion con `scraping_source` y `scraping_run`.
 
-## Regla de dependencias
+Excluido por ahora:
 
-El dominio no debe depender de FastAPI, SQLAlchemy, PostgreSQL, Playwright ni ninguna herramienta externa. Las dependencias deben apuntar hacia el dominio, no al revés.
+- Usuarios, autenticacion, roles y permisos.
+- Canastas guardadas.
+- Rankings persistidos.
+- Scraping y ETL real.
 
-## Estado inicial y salud
+## Estado de etapas
 
-La aplicación expone solamente el endpoint técnico `GET /health`, cuya respuesta es:
-
-```json
-{
-  "status": "ok",
-  "service": "price-dss-backend"
-}
-```
-
-No existen todavía endpoints de negocio, autenticación, usuarios, modelos SQLAlchemy completos ni persistencia de canastas.
+- Estructura base, modulos principales y arquitectura Clean/Hexagonal: completo.
+- Entidades de dominio del core: completo.
+- Entidades agregadas para cerrar huecos: `PriceSnapshot`, `ScrapingSource` y `ScrapingRun`.
+- Modelos SQLAlchemy y migraciones del core: completo.
+- Tablas de auditoria de ingestion: completo con `scraping_source` y `scraping_run`.
+- Puertos, repositorios SQLAlchemy, Unit of Work, seed y ranking DSS: completo para el core.
+- Endpoints minimos v1: completo.
+- Scraping y ETL real: pendiente.
 
 ## Desarrollo local
 
@@ -67,49 +71,63 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload
 ```
 
-La documentación automática de FastAPI estará disponible en `http://127.0.0.1:8000/docs` y el estado del servicio en `http://127.0.0.1:8000/health`.
+La documentacion automatica de FastAPI queda en `http://127.0.0.1:8000/docs`.
+El health check esta en `GET /health`:
 
-## Próximos pasos
+```json
+{
+  "status": "ok",
+  "service": "price-dss-backend"
+}
+```
 
-- Definir entidades de dominio.
-- Crear puertos de repositorio.
-- Implementar modelos SQLAlchemy.
-- Implementar casos de uso.
-- Crear endpoints HTTP.
-- Implementar scraping.
-- Implementar pipeline ETL.
-- Implementar ranking multicriterio.
+## Base de datos para demo
 
-## Migraciones de base de datos
-
-Configura `DATABASE_URL` con una URL PostgreSQL asíncrona. Por ejemplo, en PowerShell:
+Para la demo se usa SQLite por defecto. Desde `backend/`, la URL recomendada es:
 
 ```powershell
-$env:DATABASE_URL = "postgresql+asyncpg://dss_user:change_me@localhost:5432/price_dss"
+$env:DATABASE_URL = "sqlite+aiosqlite:///./price_dss_demo.db"
 ```
 
-Alembic adapta automáticamente el driver `asyncpg` a `psycopg` para ejecutar migraciones. Desde `backend`, usa:
+Si no configuras `DATABASE_URL`, el backend usa esa base SQLite local por default.
+El archivo `price_dss_demo.db` se crea en la carpeta desde donde ejecutes los comandos.
+
+## Migraciones
+
+Alembic recibe la misma `DATABASE_URL` async del backend y la adapta al driver
+sincronico de migraciones. Para SQLite:
+
+```powershell
+$env:DATABASE_URL = "sqlite+aiosqlite:///./price_dss_demo.db"
+```
 
 ```bash
-alembic revision --autogenerate -m "create initial price dss schema"
-alembic upgrade head
-alembic downgrade -1
+uv run alembic upgrade head
+uv run alembic downgrade -1
 ```
+
+Migraciones actuales:
+
+- `0001`: esquema inicial del DSS de precios.
+- `0002`: tablas `scraping_source` y `scraping_run`.
 
 ## Seed inicial
 
-Aplica primero las migraciones y luego carga los datos de prueba para Comodoro Rivadavia y Rada Tilly:
+Aplica migraciones y carga datos de prueba:
 
 ```bash
-alembic upgrade head
-python scripts/seed_initial_data.py
+uv run alembic upgrade head
+uv run python scripts/seed_initial_data.py
 ```
 
-También puede ejecutarse con `python -m scripts.seed_initial_data`. El seed es idempotente y usa una fecha de relevamiento fija para no duplicar precios históricos.
+El seed es idempotente y carga Chubut, Comodoro Rivadavia, Rada Tilly,
+supermercados, sucursales, categorias, marcas, productos, productos fuente y
+precios.
 
 ## Unit of Work
 
-La unidad de trabajo agrupa repositorios que comparten una sesión y centraliza el `commit` o `rollback`. Los repositorios solo hacen `flush`; los futuros casos de uso decidirán cuándo confirmar la transacción.
+La unidad de trabajo agrupa repositorios que comparten una sesion y centraliza
+`commit` y `rollback`. Los repositorios solo hacen `flush`.
 
 ```python
 async with get_unit_of_work() as uow:
@@ -117,4 +135,138 @@ async with get_unit_of_work() as uow:
     await uow.commit()
 ```
 
-Para una prueba de solo lectura de la conexión, ejecuta `python scripts/test_uow_connection.py` después de aplicar las migraciones.
+## Casos de uso de lectura y ranking
+
+La capa `application` contiene casos de uso iniciales para buscar productos,
+listar categorias, listar marcas, listar supermercados, listar sucursales,
+consultar precios actuales, consultar historial y comparar precios por
+producto. Estos casos de uso dependen de `UnitOfWorkPort`, devuelven DTOs y no
+dependen de FastAPI, SQLAlchemy ni Pydantic.
+
+El ranking DSS se calcula en memoria desde
+`decision/application/use_cases/GenerateRankingUseCase`. Recibe un
+`GenerateRankingCommand`, construye una canasta temporal, consulta datos por
+puertos, calcula distancias con `geo` y ordena alternativas con el modelo de
+suma ponderada del dominio `decision`.
+
+No persiste rankings ni canastas. Las sucursales que no cubren todos los
+productos se devuelven como incompletas y quedan fuera del ranking principal.
+
+## Endpoints v1
+
+- `GET /health`
+- `GET /api/v1/catalog/products`
+- `GET /api/v1/catalog/categories`
+- `GET /api/v1/catalog/brands`
+- `GET /api/v1/locations/cities`
+- `GET /api/v1/supermarkets`
+- `GET /api/v1/branches`
+- `GET /api/v1/prices/current`
+- `GET /api/v1/prices/history`
+- `GET /api/v1/prices/compare`
+- `POST /api/v1/basket/validate`
+- `POST /api/v1/decisions/ranking`
+
+Los routers HTTP viven en `interfaces/http` y no consultan SQLAlchemy
+directamente.
+
+## Contrato HTTP
+
+Las colecciones no paginadas devuelven:
+
+```json
+{
+  "items": [],
+  "count": 0
+}
+```
+
+Las colecciones paginadas devuelven:
+
+```json
+{
+  "items": [],
+  "count": 0,
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "count": 0,
+    "total": 0
+  }
+}
+```
+
+Los errores mantienen `detail` por compatibilidad y agregan un contrato
+estructurado:
+
+```json
+{
+  "detail": "Mensaje de error",
+  "error": {
+    "code": "http_error",
+    "message": "Mensaje de error",
+    "details": "Mensaje de error"
+  }
+}
+```
+
+## Contrato con frontend
+
+El backend publica campos tecnicos en ingles, por ejemplo `normalized_name`,
+`amount`, `observed_at`, `branch` e `incomplete_branches`.
+
+El frontend mantiene nombres orientados a la UI en castellano, como `nombre`,
+`precio`, `fecha_relevamiento`, `sucursal` e `incomplete`. La traduccion entre
+ambos contratos vive en `frontend/src/services/api.ts`. En modo
+`VITE_API_MODE=live`, ese cliente adapta las respuestas de `/api/v1` al contrato
+que usan las vistas Vue. En modo mock se mantienen los datos locales de
+demostracion.
+
+## Ingestion y scraping
+
+La base ya incluye tablas de auditoria para ingestion:
+
+- `scraping_source`: fuente externa asociada a un supermercado.
+- `scraping_run`: ejecucion de scraping, estado, contadores y errores.
+
+Los scrapers y componentes ETL siguen siendo placeholders. La implementacion real
+de extraction, cleaning, normalization y load queda para la siguiente etapa.
+
+## Pruebas
+
+La suite incluye pruebas unitarias de dominio/modelo DSS y pruebas de integracion
+HTTP livianas con un Unit of Work falso en memoria.
+
+```bash
+uv run --extra dev pytest -q
+uv run python -m compileall -q app scripts
+```
+
+## Validacion local con SQLite
+
+Desde `backend/`:
+
+```bash
+copy .env.example .env
+uv run alembic upgrade head
+uv run python scripts/seed_initial_data.py
+uv run python scripts/smoke_api_v1.py
+```
+
+El smoke test valida health check, catalogo, ubicaciones, supermercados,
+sucursales, precios vigentes, canasta temporal y ranking DSS contra datos reales.
+
+## PostgreSQL opcional
+
+El proyecto conserva compatibilidad con PostgreSQL para etapas posteriores. Desde
+la raiz del repositorio se puede levantar el servicio:
+
+```bash
+docker compose up -d postgres
+```
+
+Y usar:
+
+```powershell
+$env:DATABASE_URL = "postgresql+asyncpg://dss_user:dss_password@localhost:5432/price_dss"
+```
