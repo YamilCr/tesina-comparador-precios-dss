@@ -56,9 +56,11 @@ Excluido por ahora:
 - Entidades agregadas para cerrar huecos: `PriceSnapshot`, `ScrapingSource` y `ScrapingRun`.
 - Modelos SQLAlchemy y migraciones del core: completo.
 - Tablas de auditoria de ingestion: completo con `scraping_source` y `scraping_run`.
+- Administracion de fuentes y corridas de ingestion: completo mediante API v1.
 - Puertos, repositorios SQLAlchemy, Unit of Work, seed y ranking DSS: completo para el core.
 - Endpoints minimos v1: completo.
-- Scraping y ETL real: pendiente.
+- Scrapers reales limitados para Jumbo y La Coope, con auditoria automatica: completo como piloto.
+- ETL real, matching con catalogo y carga de precios: pendiente.
 
 ## Desarrollo local
 
@@ -90,7 +92,10 @@ $env:DATABASE_URL = "sqlite+aiosqlite:///./price_dss_demo.db"
 ```
 
 Si no configuras `DATABASE_URL`, el backend usa esa base SQLite local por default.
-El archivo `price_dss_demo.db` se crea en la carpeta desde donde ejecutes los comandos.
+El archivo `price_dss_demo.db` se crea siempre en `backend/`, aunque ejecutes un
+comando desde otra carpeta del repositorio. Las URLs SQLite relativas definidas
+en `.env` tambien se resuelven contra `backend/` para que migraciones, seed y
+scraper usen la misma base.
 
 ## Migraciones
 
@@ -121,8 +126,8 @@ uv run python scripts/seed_initial_data.py
 ```
 
 El seed es idempotente y carga Chubut, Comodoro Rivadavia, Rada Tilly,
-supermercados, sucursales, categorias, marcas, productos, productos fuente y
-precios.
+supermercados, sucursales, categorias, marcas, productos, productos fuente,
+precios y la configuracion inicial de los pilotos de Jumbo y La Coope.
 
 ## Unit of Work
 
@@ -166,6 +171,12 @@ productos se devuelven como incompletas y quedan fuera del ranking principal.
 - `GET /api/v1/prices/compare`
 - `POST /api/v1/basket/validate`
 - `POST /api/v1/decisions/ranking`
+- `GET|POST /api/v1/ingestion/sources`
+- `PATCH /api/v1/ingestion/sources/{source_id}`
+- `GET /api/v1/ingestion/runs`
+- `POST /api/v1/ingestion/sources/{source_id}/runs`
+- `POST /api/v1/ingestion/runs/{run_id}/succeed`
+- `POST /api/v1/ingestion/runs/{run_id}/fail`
 
 Los routers HTTP viven en `interfaces/http` y no consultan SQLAlchemy
 directamente.
@@ -229,8 +240,64 @@ La base ya incluye tablas de auditoria para ingestion:
 - `scraping_source`: fuente externa asociada a un supermercado.
 - `scraping_run`: ejecucion de scraping, estado, contadores y errores.
 
-Los scrapers y componentes ETL siguen siendo placeholders. La implementacion real
-de extraction, cleaning, normalization y load queda para la siguiente etapa.
+El piloto incluye adaptadores HTTP reales para los catalogos publicos de Jumbo y
+La Coope en Casa. Se ejecutan manualmente, extraen pocas consultas y registran una
+corrida como exitosa o fallida. Sus resultados se imprimen como JSON y `items_loaded` queda en cero:
+el catalogo, matching y carga de precios siguen siendo responsabilidad de la
+siguiente etapa ETL.
+
+Tras aplicar la migracion y el seed, obtene el identificador de la fuente:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/ingestion/sources
+```
+
+Luego, desde `backend/`, ejecuta el piloto con pocas consultas:
+
+```powershell
+uv run python -m app.modules.ingestion.interfaces.cli.run_scraping `
+  --source-id <UUID_DE_LA_FUENTE_JUMBO> `
+  --scraper jumbo `
+  --city "Comodoro Rivadavia" `
+  --query "coca cola" `
+  --query "leche" `
+  --limit 5
+```
+
+Para La Coope, usa el identificador de `La Coope public catalog pilot` y el
+selector correspondiente:
+
+```powershell
+uv run python -m app.modules.ingestion.interfaces.cli.run_scraping `
+  --source-id <UUID_DE_LA_FUENTE_LA_COOPE> `
+  --scraper coope `
+  --city "Comodoro Rivadavia" `
+  --query "fernet" `
+  --query "gancia" `
+  --limit 5
+```
+
+Tambien puede ejecutarse desde la raiz del repositorio sin cambiar de carpeta:
+
+```powershell
+uv run --directory backend python -m app.modules.ingestion.interfaces.cli.run_scraping `
+  --source-id <UUID_DE_LA_FUENTE_JUMBO> `
+  --city "Comodoro Rivadavia" `
+  --query "coca cola" `
+  --limit 5
+```
+
+Los endpoints publicos usados no reciben una sucursal ni una localidad. El campo
+`city` delimita el alcance declarado del piloto, pero los precios extraidos no deben
+presentarse como precios confirmados de Comodoro Rivadavia hasta validar la seleccion
+de ubicacion del sitio y asociarlos a una sucursal durante el ETL.
+
+Si se configura una `DATABASE_URL` diferente, aplica `alembic upgrade head` y el
+seed sobre esa misma base antes de ejecutar el scraper.
+
+La API de administracion permite crear, listar y activar/desactivar fuentes,
+iniciar una corrida por fuente y finalizarla como exitosa o fallida. Solo se
+permite una corrida abierta por fuente; estas operaciones no ejecutan scraping.
 
 ## Pruebas
 

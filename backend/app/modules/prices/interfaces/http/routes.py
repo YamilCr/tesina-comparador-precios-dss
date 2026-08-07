@@ -101,12 +101,6 @@ async def list_current_prices(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> dict:
     """Consulta precios actuales usando filtros definidos en application."""
-    if not any((product_id, product_source_id, branch_id, city_id, supermarket_id)):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Debe indicar product_id, product_source_id, branch_id, city_id o supermarket_id.",
-        )
-
     product_ids = [product_id] if product_id is not None else None
     try:
         prices = await ListCurrentPricesUseCase(uow).execute(

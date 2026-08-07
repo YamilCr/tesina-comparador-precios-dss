@@ -34,6 +34,8 @@ class ScrapingRun:
 
     def mark_running(self) -> None:
         """Marca la corrida como iniciada."""
+        if self.status != "pending":
+            raise ValueError("Only pending scraping runs can be started.")
         self.status = "running"
 
     def mark_succeeded(
@@ -43,8 +45,12 @@ class ScrapingRun:
         items_loaded: int,
     ) -> None:
         """Marca la corrida como exitosa."""
+        if self.status != "running":
+            raise ValueError("Only running scraping runs can succeed.")
         if items_scraped < 0 or items_loaded < 0:
             raise ValueError("Scraping run counters cannot be negative.")
+        if items_loaded > items_scraped:
+            raise ValueError("Scraping run loaded items cannot exceed scraped items.")
         if finished_at < self.started_at:
             raise ValueError("Scraping run finished_at cannot be before started_at.")
         self.status = "succeeded"
@@ -55,6 +61,8 @@ class ScrapingRun:
 
     def mark_failed(self, finished_at: datetime, error_message: str) -> None:
         """Marca la corrida como fallida con un mensaje de error."""
+        if self.status != "running":
+            raise ValueError("Only running scraping runs can fail.")
         if finished_at < self.started_at:
             raise ValueError("Scraping run finished_at cannot be before started_at.")
         if not error_message or not error_message.strip():

@@ -28,18 +28,6 @@ class CurrentPriceQuery:
         if self.product_source_id is not None and self.product_ids:
             raise ValueError("product_source_id cannot be combined with product_ids.")
 
-        has_any_filter = any(
-            (
-                bool(self.product_ids),
-                self.product_source_id is not None,
-                self.branch_id is not None,
-                self.city_id is not None,
-                self.supermarket_id is not None,
-            )
-        )
-        if not has_any_filter:
-            raise ValueError("Current price query requires at least one filter.")
-
         if self.limit <= 0:
             raise ValueError("Current price query limit must be greater than zero.")
 

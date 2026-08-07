@@ -16,7 +16,7 @@ from app.dependencies import get_unit_of_work
 from app.main import app
 from app.modules.catalog.domain.entities import Brand, Product, ProductCategory, ProductSource
 from app.modules.prices.domain.entities import Price
-from app.modules.supermarkets.domain.entities import Branch, City, Supermarket
+from app.modules.supermarkets.domain.entities import Branch, City, Province, Supermarket
 
 
 CITY_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -201,6 +201,16 @@ class FakeCityRepository:
         return self._cities
 
 
+class FakeProvinceRepository:
+    """In-memory province repository for HTTP tests."""
+
+    def __init__(self, provinces: list[Province]) -> None:
+        self._provinces = provinces
+
+    async def get_by_id(self, province_id: UUID) -> Province | None:
+        return next((province for province in self._provinces if province.id == province_id), None)
+
+
 class FakeSupermarketRepository:
     """Repositorio en memoria de supermercados para pruebas HTTP."""
 
@@ -354,10 +364,14 @@ class FakeUnitOfWork:
                 external_code="CAR-AGUA-150",
             ),
         ]
+        province = Province(
+            id=UUID("00000000-0000-0000-0000-000000000071"),
+            name="Chubut",
+        )
         cities = [
             City(
                 id=CITY_ID,
-                province_id=UUID("00000000-0000-0000-0000-000000000071"),
+                province_id=province.id,
                 name="Comodoro Rivadavia",
                 latitude=Decimal("-45.8641"),
                 longitude=Decimal("-67.4966"),
@@ -423,6 +437,7 @@ class FakeUnitOfWork:
         self.brands = FakeBrandRepository(brands)
         self.products = FakeProductRepository(products)
         self.product_sources = FakeProductSourceRepository(product_sources)
+        self.provinces = FakeProvinceRepository([province])
         self.cities = FakeCityRepository(cities)
         self.supermarkets = FakeSupermarketRepository(supermarkets)
         self.branches = FakeBranchRepository(branches)
@@ -482,6 +497,7 @@ def test_reference_endpoints_return_seeded_items() -> None:
     assert brands["items"][0]["name"] == "Coca Cola"
     assert brands["count"] == 1
     assert cities["items"][0]["name"] == "Comodoro Rivadavia"
+    assert cities["items"][0]["province_name"] == "Chubut"
     assert cities["count"] == 1
     assert {item["name"] for item in supermarkets["items"]} == {"La Anónima", "Carrefour"}
     assert supermarkets["count"] == 2
@@ -595,14 +611,14 @@ def test_decision_ranking_endpoint_returns_ranked_alternatives() -> None:
     assert payload["incomplete_branches"] == []
 
 
-def test_http_error_contract_is_stable() -> None:
+def test_current_prices_endpoint_lists_all_prices_without_filters() -> None:
     """Verifica el contrato estándar de error HTTP."""
-    response = _request("GET", "/api/v1/prices/current")
+    _install_fake_unit_of_work()
+    try:
+        response = _request("GET", "/api/v1/prices/current")
+    finally:
+        _clear_overrides()
 
-    assert response.status_code == 422
+    assert response.status_code == 200
     payload = response.json()
-    assert payload["detail"] == (
-        "Debe indicar product_id, product_source_id, branch_id, city_id o supermarket_id."
-    )
-    assert payload["error"]["code"] == "http_error"
-    assert payload["error"]["message"] == payload["detail"]
+    assert payload["count"] == 4

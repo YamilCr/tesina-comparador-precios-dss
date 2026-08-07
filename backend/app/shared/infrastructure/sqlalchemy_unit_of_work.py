@@ -11,6 +11,7 @@ from app.modules.catalog.infrastructure.persistence import (
     SQLAlchemyProductRepository,
     SQLAlchemyProductSourceRepository,
 )
+from app.modules.ingestion.infrastructure.persistence import SQLAlchemyIngestionRepository
 from app.modules.prices.infrastructure.persistence import SQLAlchemyPriceRepository
 from app.modules.supermarkets.infrastructure.persistence import (
     SQLAlchemyBranchRepository,
@@ -37,6 +38,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort):
         self._products: SQLAlchemyProductRepository | None = None
         self._product_sources: SQLAlchemyProductSourceRepository | None = None
         self._prices: SQLAlchemyPriceRepository | None = None
+        self._ingestion: SQLAlchemyIngestionRepository | None = None
 
     @property
     def session(self) -> AsyncSession:
@@ -108,6 +110,13 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort):
             raise RuntimeError("Unit of work has not been entered.")
         return self._prices
 
+    @property
+    def ingestion(self) -> SQLAlchemyIngestionRepository:
+        """Exposes ingestion sources and runs in the current transaction."""
+        if self._ingestion is None:
+            raise RuntimeError("Unit of work has not been entered.")
+        return self._ingestion
+
     async def __aenter__(self) -> Self:
         """Abre una sesión e instancia los repositorios que comparten transacción."""
         self._session = self._session_factory()
@@ -120,6 +129,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort):
         self._products = SQLAlchemyProductRepository(self._session)
         self._product_sources = SQLAlchemyProductSourceRepository(self._session)
         self._prices = SQLAlchemyPriceRepository(self._session)
+        self._ingestion = SQLAlchemyIngestionRepository(self._session)
         return self
 
     async def __aexit__(
@@ -147,6 +157,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort):
             self._products = None
             self._product_sources = None
             self._prices = None
+            self._ingestion = None
 
     async def commit(self) -> None:
         """Confirma explícitamente la transacción abierta."""

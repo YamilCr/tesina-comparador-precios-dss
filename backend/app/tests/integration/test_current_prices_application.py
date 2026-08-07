@@ -40,6 +40,23 @@ async def test_current_prices_use_case_removes_historical_duplicates(
     assert seed_data.unavailable_price_id not in {price.id for price in prices}
 
 
+async def test_current_prices_use_case_lists_all_active_branches_without_filters(
+    sqlite_session_factory: async_sessionmaker[AsyncSession],
+    seed_data: IntegrationSeedData,
+) -> None:
+    """Lists current prices for every active branch."""
+    uow = SQLAlchemyUnitOfWork(sqlite_session_factory)
+
+    prices = await ListCurrentPricesUseCase(uow).execute(CurrentPriceQuery())
+
+    assert {price.id for price in prices} == {
+        seed_data.la_coca_current_price_id,
+        seed_data.la_milk_price_id,
+        seed_data.carrefour_coca_price_id,
+        seed_data.carrefour_milk_price_id,
+    }
+
+
 async def test_current_prices_use_case_filters_by_supermarket_city_and_branch(
     sqlite_session_factory: async_sessionmaker[AsyncSession],
     seed_data: IntegrationSeedData,

@@ -1,1 +1,5 @@
-"""Adaptadores HTTP de ingesta; no registra endpoints en esta etapa."""
+"""HTTP adapters for ingestion administration."""
+
+from .routes import router
+
+__all__ = ["router"]

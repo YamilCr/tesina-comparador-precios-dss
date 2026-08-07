@@ -47,15 +47,33 @@ async def _branch_display_names(
     return supermarket_names, city_names
 
 
+async def _city_province_names(uow: UnitOfWorkPort, cities) -> dict[UUID, str]:
+    """Loads province names for serialized cities."""
+    province_ids = {city.province_id for city in cities}
+    province_names: dict[UUID, str] = {}
+
+    if not province_ids:
+        return province_names
+
+    async with uow as read_uow:
+        for province_id in province_ids:
+            province = await read_uow.provinces.get_by_id(province_id)
+            if province is not None:
+                province_names[province.id] = province.name
+    return province_names
+
+
 @router.get("/locations/cities")
 async def list_cities(uow: UnitOfWorkDependency) -> dict:
     """Lista ciudades disponibles para consultas de ubicación."""
     cities = await ListCitiesUseCase(uow).execute()
+    province_names = await _city_province_names(uow, cities)
     return collection_response(
         [
             CityResponse(
                 id=city.id,
                 province_id=city.province_id,
+                province_name=province_names.get(city.province_id),
                 name=city.name,
                 postal_code=city.postal_code,
                 latitude=city.latitude,

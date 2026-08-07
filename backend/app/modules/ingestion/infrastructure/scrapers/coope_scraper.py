@@ -1,24 +1,24 @@
-"""Jumbo public catalog adapter used by the single-chain scraping pilot."""
+"""La Coope en Casa public catalog adapter for the scraping pilot."""
 
 import asyncio
 import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any
-from urllib.parse import quote, urljoin
 
 import aiohttp
 
 from app.modules.ingestion.domain.ports import ScraperPort
 
-CHAIN_SLUG = "jumbo"
+CHAIN_SLUG = "lacoopeencasa"
 DEFAULT_CITY = "Comodoro Rivadavia"
-DEFAULT_BASE_URL = "https://www.jumbo.com.ar"
-DEFAULT_RESULT_LIMIT = 10
+DEFAULT_BASE_URL = "https://api.lacoopeencasa.coop"
+SITE_URL = "https://www.lacoopeencasa.coop"
+DEFAULT_RESULT_LIMIT = 15
 logger = logging.getLogger(__name__)
 
 
-class JumboScraper(ScraperPort):
-    """Extracts a small set of public Jumbo catalog search results."""
+class CoopeScraper(ScraperPort):
+    """Extracts a small set of public La Coope en Casa search results."""
 
     def __init__(
         self,
@@ -48,11 +48,13 @@ class JumboScraper(ScraperPort):
         self._max_retries = max_retries
 
     async def scrape(self) -> list[dict]:
-        """Fetches and validates catalog matches, deduplicated by Jumbo product id."""
+        """Fetches search results sequentially and deduplicates internal article codes."""
         timeout = aiohttp.ClientTimeout(total=self._timeout_seconds)
         connector = aiohttp.TCPConnector(limit=3)
         headers = {
             "Accept": "application/json",
+            "Origin": SITE_URL,
+            "Referer": f"{SITE_URL}/",
             "User-Agent": "dss-price-comparator-pilot/0.1 (+educational-demo)",
         }
         async with aiohttp.ClientSession(
@@ -68,24 +70,24 @@ class JumboScraper(ScraperPort):
         return list(unique_results.values())
 
     async def search_product(self, session: aiohttp.ClientSession, query: str) -> list[dict]:
-        """Queries Jumbo's public catalog endpoint for one product phrase."""
-        encoded_query = quote(query, safe="")
-        url = (
-            f"{self._base_url}/api/catalog_system/pub/products/search"
-            f"?ft={encoded_query}&_from=0&_to={self._result_limit - 1}"
-        )
+        """Queries the public La Coope en Casa article-search endpoint."""
         data = await self._get_json_with_retry(
             session,
-            url,
-            context=f"Jumbo query={query!r}",
+            f"{self._base_url}/api/buscar/articulos",
+            params={"q": query, "offset": "0", "pedido": str(self._result_limit)},
+            context=f"La Coope query={query!r}",
         )
-        if not isinstance(data, list):
-            logger.warning("Jumbo returned a non-list response for query %r.", query)
+        if not isinstance(data, dict) or data.get("estado") != 1:
+            logger.warning("La Coope returned an invalid search response for query %r.", query)
+            return []
+
+        items = data.get("datos")
+        if not isinstance(items, list):
             return []
         return [
             product
-            for item in data
-            if (product := normalize_jumbo_product(item, city=self._city, base_url=self._base_url))
+            for item in items[: self._result_limit]
+            if (product := normalize_coope_product(item, city=self._city))
         ]
 
     async def _get_json_with_retry(
@@ -93,12 +95,13 @@ class JumboScraper(ScraperPort):
         session: aiohttp.ClientSession,
         url: str,
         *,
+        params: dict[str, str],
         context: str,
     ) -> Any:
         last_error: Exception | None = None
         for attempt in range(1, self._max_retries + 1):
             try:
-                async with session.get(url) as response:
+                async with session.get(url, params=params) as response:
                     if response.status == 429 or response.status >= 500:
                         raise aiohttp.ClientResponseError(
                             response.request_info,
@@ -110,7 +113,7 @@ class JumboScraper(ScraperPort):
                     if response.status >= 400:
                         response_text = (await response.text()).strip().replace("\n", " ")
                         raise RuntimeError(
-                            f"Jumbo rejected request with HTTP {response.status}: {response_text[:300]}"
+                            f"La Coope rejected request with HTTP {response.status}: {response_text[:300]}"
                         )
                     return await response.json(content_type=None)
             except (aiohttp.ClientError, asyncio.TimeoutError) as error:
@@ -119,50 +122,39 @@ class JumboScraper(ScraperPort):
                     break
                 await asyncio.sleep(0.5 * attempt)
 
-        raise RuntimeError(f"Jumbo request failed after {self._max_retries} attempts: {context}") from last_error
+        raise RuntimeError(
+            f"La Coope request failed after {self._max_retries} attempts: {context}"
+        ) from last_error
 
 
-def normalize_jumbo_product(
-    item: dict[str, Any],
-    *,
-    city: str = DEFAULT_CITY,
-    base_url: str = DEFAULT_BASE_URL,
-) -> dict | None:
-    """Transforms Jumbo's catalog payload into the pilot's raw extraction contract."""
+def normalize_coope_product(item: dict[str, Any], *, city: str = DEFAULT_CITY) -> dict | None:
+    """Transforms La Coope's article payload into the pilot's raw extraction contract."""
     try:
-        product_id = str(item["productId"]).strip()
-        product_name = str(item["productName"]).strip()
-        product_item = item["items"][0]
-        seller = product_item["sellers"][0]
-        offer = seller["commertialOffer"]
-        price = Decimal(str(offer["Price"]))
-        if not product_id or not product_name or price <= 0:
+        external_id = str(item["cod_interno"]).strip()
+        name = str(item["descripcion"]).strip()
+        price = Decimal(str(item["precio"]))
+        if not external_id or not name or price <= 0:
             return None
-    except (IndexError, InvalidOperation, KeyError, TypeError, ValueError):
+    except (InvalidOperation, KeyError, TypeError, ValueError):
         return None
 
-    images = product_item.get("images") or []
-    image_url = next(
-        (
-            image.get("imageUrl")
-            for image in images
-            if isinstance(image, dict) and isinstance(image.get("imageUrl"), str)
-        ),
-        None,
-    )
-    link_text = item.get("linkText")
-    product_url = urljoin(f"{base_url.rstrip('/')}/", f"{link_text}/p") if link_text else None
+    presentation = " ".join(
+        part.strip()
+        for part in (str(item.get("gramaje") or ""), str(item.get("unimed_desc") or ""))
+        if part.strip()
+    ) or None
+    image_url = item.get("imagen")
 
     return {
-        "ean": product_item.get("ean") or product_id,
-        "name": product_name,
-        "brand": item.get("brand") or None,
+        "ean": external_id,
+        "name": name,
+        "brand": item.get("marca_desc") or None,
         "price": float(price),
-        "external_id": product_id,
+        "external_id": external_id,
         "source": CHAIN_SLUG,
-        "identifier_type": "gtin",
-        "url": product_url,
-        "image_url": image_url,
-        "presentation": None,
+        "identifier_type": "internal",
+        "url": f"{SITE_URL}/articulo/{external_id}",
+        "image_url": image_url if isinstance(image_url, str) else None,
+        "presentation": presentation,
         "city": city,
     }

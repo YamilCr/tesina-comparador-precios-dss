@@ -10,6 +10,7 @@ from app.modules.catalog.domain.ports import (
     ProductRepositoryPort,
     ProductSourceRepositoryPort,
 )
+from app.modules.ingestion.domain.ports import IngestionRepositoryPort
 from app.modules.prices.domain.ports import PriceRepositoryPort
 from app.modules.supermarkets.domain.ports import (
     BranchRepositoryPort,
@@ -66,6 +67,11 @@ class UnitOfWorkPort(ABC):
     @abstractmethod
     def prices(self) -> PriceRepositoryPort:
         """Expone el puerto de precios asociado a la transacción."""
+
+    @property
+    @abstractmethod
+    def ingestion(self) -> IngestionRepositoryPort:
+        """Exposes ingestion sources and runs in the transaction."""
 
     @abstractmethod
     async def __aenter__(self) -> Self:

@@ -25,6 +25,7 @@ from app.modules.catalog.infrastructure.persistence import (  # noqa: E402
     ProductSourceModel,
 )
 from app.modules.prices.infrastructure.persistence import PriceModel  # noqa: E402
+from app.modules.ingestion.infrastructure.persistence import ScrapingSourceModel  # noqa: E402
 from app.modules.supermarkets.infrastructure.persistence import (  # noqa: E402
     BranchModel,
     CityModel,
@@ -42,6 +43,20 @@ SUPERMARKETS = (
     {"name": "Carrefour", "website_url": None},
     {"name": "Chango Más", "website_url": None},
     {"name": "Jumbo", "website_url": None},
+    {"name": "La Coope", "website_url": None},
+)
+
+SCRAPING_SOURCES = (
+    {
+        "supermarket": "Jumbo",
+        "name": "Jumbo public catalog pilot",
+        "base_url": "https://www.jumbo.com.ar",
+    },
+    {
+        "supermarket": "La Coope",
+        "name": "La Coope public catalog pilot",
+        "base_url": "https://api.lacoopeencasa.coop",
+    },
 )
 
 BRANCHES = (
@@ -146,6 +161,7 @@ SUPERMARKET_CODE_PREFIXES = {
     "Carrefour": "CAR",
     "Chango Más": "CHA",
     "Jumbo": "JUM",
+    "La Coope": "COO",
 }
 
 PRICE_DATA = {
@@ -203,6 +219,7 @@ class SeedSummary:
             "products": SeedCounts(),
             "product_sources": SeedCounts(),
             "prices": SeedCounts(),
+            "scraping_sources": SeedCounts(),
         }
     )
 
@@ -225,6 +242,7 @@ class SeedSummary:
             "products": "Productos",
             "product_sources": "Productos fuente",
             "prices": "Precios",
+            "scraping_sources": "Fuentes de scraping",
         }
         print("Seed completed successfully.")
         for resource, label in labels.items():
@@ -298,6 +316,34 @@ async def get_or_create_supermarket(
     session.add(supermarket)
     await session.flush()
     return supermarket, True
+
+
+async def get_or_create_scraping_source(
+    session: AsyncSession,
+    supermarket_id: UUID,
+    name: str,
+    base_url: str,
+) -> tuple[ScrapingSourceModel, bool]:
+    """Creates the configured Jumbo pilot source once, without creating any prices."""
+    source = await session.scalar(
+        select(ScrapingSourceModel).where(
+            ScrapingSourceModel.supermercado_id == supermarket_id,
+            ScrapingSourceModel.nombre == name,
+        )
+    )
+    if source is not None:
+        return source, False
+
+    source = ScrapingSourceModel(
+        id=uuid4(),
+        supermercado_id=supermarket_id,
+        nombre=name,
+        base_url=base_url,
+        activo=True,
+    )
+    session.add(source)
+    await session.flush()
+    return source, True
 
 
 async def get_or_create_branch(
@@ -495,6 +541,15 @@ async def seed_initial_data() -> None:
                     )
                     supermarkets[supermarket_data["name"]] = supermarket
                     summary.record("supermarkets", created)
+
+                for source_data in SCRAPING_SOURCES:
+                    _, created = await get_or_create_scraping_source(
+                        session,
+                        supermarkets[source_data["supermarket"]].id,
+                        source_data["name"],
+                        source_data["base_url"],
+                    )
+                    summary.record("scraping_sources", created)
 
                 branches: dict[str, BranchModel] = {}
                 branch_supermarkets: dict[str, str] = {}

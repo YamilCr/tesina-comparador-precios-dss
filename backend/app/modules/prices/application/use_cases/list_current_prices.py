@@ -44,6 +44,8 @@ class ListCurrentPricesUseCase:
                     prices.extend(await uow.prices.find_current_by_branch(branch_id))
             else:
                 prices = []
+                for branch in await uow.branches.list_active():
+                    prices.extend(await uow.prices.find_current_by_branch(branch.id))
 
             current_prices = select_current_prices(prices)[: query.limit]
             return [PriceDTO.from_entity(price) for price in current_prices]

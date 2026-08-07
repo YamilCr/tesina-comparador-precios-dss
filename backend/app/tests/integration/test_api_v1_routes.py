@@ -19,3 +19,9 @@ def test_api_v1_routes_are_registered() -> None:
     assert "/api/v1/prices/compare" in paths
     assert "/api/v1/basket/validate" in paths
     assert "/api/v1/decisions/ranking" in paths
+    assert "/api/v1/ingestion/sources" in paths
+    assert "/api/v1/ingestion/sources/{source_id}" in paths
+    assert "/api/v1/ingestion/sources/{source_id}/runs" in paths
+    assert "/api/v1/ingestion/runs" in paths
+    assert "/api/v1/ingestion/runs/{run_id}/succeed" in paths
+    assert "/api/v1/ingestion/runs/{run_id}/fail" in paths

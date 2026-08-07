@@ -36,6 +36,10 @@ async def test_catalog_and_reference_endpoints_use_real_sqlite_data(
     assert categories_response.status_code == 200
     assert categories_response.json()["items"][0]["name"] == "Bebidas"
 
+    cities_response: ASGIResponse = await asgi_request("GET", "/api/v1/locations/cities")
+    assert cities_response.status_code == 200
+    assert cities_response.json()["items"][0]["province_name"] == "Chubut"
+
     assert supermarkets_response.status_code == 200
     assert {item["name"] for item in supermarkets_response.json()["items"]} == {
         "La Anónima",

@@ -32,3 +32,22 @@ class ScrapingSource:
     def deactivate(self) -> None:
         """Marca la fuente como inactiva."""
         self.active = False
+
+    def update_configuration(
+        self,
+        *,
+        name: str | None = None,
+        base_url: str | None = None,
+        active: bool | None = None,
+    ) -> None:
+        """Updates the source configuration while preserving domain validation."""
+        if name is not None:
+            if not name.strip():
+                raise ValueError("Scraping source name cannot be empty.")
+            self.name = name.strip()
+        if base_url is not None:
+            if not base_url.strip():
+                raise ValueError("Scraping source base URL cannot be empty.")
+            self.base_url = base_url.strip()
+        if active is not None:
+            self.active = active
