@@ -9,6 +9,7 @@ from app.modules.catalog.domain.entities import Product
 from app.modules.catalog.domain.ports import ProductRepositoryPort
 
 from .mappers import product_entity_to_model, product_model_to_entity
+from .search_matching import matches_product_name_query
 from .sqlalchemy_models import ProductModel
 
 
@@ -32,14 +33,18 @@ class SQLAlchemyProductRepository(ProductRepositoryPort):
         return product_model_to_entity(model) if model is not None else None
 
     async def search_by_name(self, query: str, limit: int = 20) -> list[Product]:
-        """Busca productos por nombre normalizado mediante coincidencia parcial."""
+        """Busca productos activos por terminos completos del nombre normalizado."""
         models = await self._session.scalars(
             select(ProductModel)
-            .where(ProductModel.nombre_normalizado.ilike(f"%{query}%"))
+            .where(ProductModel.activo.is_(True))
             .order_by(ProductModel.nombre_normalizado)
-            .limit(limit)
+            .limit(1000)
         )
-        return [product_model_to_entity(model) for model in models.all()]
+        return [
+            product_model_to_entity(model)
+            for model in models.all()
+            if matches_product_name_query(name=model.nombre_normalizado, query=query)
+        ][:limit]
 
     async def list_active(self, limit: int = 100, offset: int = 0) -> list[Product]:
         """Lista productos activos con paginación básica."""

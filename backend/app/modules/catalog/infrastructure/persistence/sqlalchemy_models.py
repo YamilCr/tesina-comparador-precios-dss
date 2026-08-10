@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (
@@ -19,6 +20,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.infrastructure.sqlalchemy_base import Base
+
+if TYPE_CHECKING:
+    from app.modules.prices.infrastructure.persistence import PriceModel
+    from app.modules.supermarkets.infrastructure.persistence import SupermarketModel
 
 
 class ProductCategoryModel(Base):

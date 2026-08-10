@@ -5,16 +5,18 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.ingestion.domain.entities import ScrapingRun, ScrapingSource
+from app.modules.ingestion.domain.entities import ScrapedProduct, ScrapingRun, ScrapingSource
 from app.modules.ingestion.domain.ports import IngestionRepositoryPort
 
 from .mappers import (
     scraping_run_entity_to_model,
     scraping_run_model_to_entity,
+    scraped_product_entity_to_model,
+    scraped_product_model_to_entity,
     scraping_source_entity_to_model,
     scraping_source_model_to_entity,
 )
-from .sqlalchemy_models import ScrapingRunModel, ScrapingSourceModel
+from .sqlalchemy_models import ScrapedProductModel, ScrapingRunModel, ScrapingSourceModel
 
 
 class SQLAlchemyIngestionRepository(IngestionRepositoryPort):
@@ -59,6 +61,7 @@ class SQLAlchemyIngestionRepository(IngestionRepositoryPort):
             model.supermercado_id = source.supermarket_id
             model.nombre = source.name
             model.base_url = source.base_url
+            model.sucursal_id = source.branch_id
             model.activo = source.active
         await self._session.flush()
         return scraping_source_model_to_entity(model)
@@ -107,3 +110,49 @@ class SQLAlchemyIngestionRepository(IngestionRepositoryPort):
             model.mensaje_error = run.error_message
         await self._session.flush()
         return scraping_run_model_to_entity(model)
+
+    async def save_scraped_products(
+        self,
+        products: list[ScrapedProduct],
+    ) -> list[ScrapedProduct]:
+        """Persists raw records and any later quality outcome without committing."""
+        saved_products: list[ScrapedProduct] = []
+        for product in products:
+            model = await self._session.get(ScrapedProductModel, product.id)
+            if model is None:
+                model = scraped_product_entity_to_model(product)
+                self._session.add(model)
+            else:
+                model.scraping_run_id = product.scraping_run_id
+                model.codigo_externo = product.external_code
+                model.ean = product.ean
+                model.nombre = product.name
+                model.marca = product.brand
+                model.precio = product.amount
+                model.presentacion = product.presentation
+                model.url_producto = product.product_url
+                model.payload_crudo = product.raw_payload
+                model.estado = product.status
+                model.mensaje_calidad = product.quality_message
+                model.producto_fuente_id = product.product_source_id
+                model.precio_id = product.price_id
+                model.procesado_en = product.processed_at
+            await self._session.flush()
+            saved_products.append(scraped_product_model_to_entity(model))
+        return saved_products
+
+    async def list_scraped_products(
+        self,
+        run_id: UUID,
+        statuses: set[str] | None = None,
+    ) -> list[ScrapedProduct]:
+        """Lists staged records deterministically for ETL processing."""
+        statement = (
+            select(ScrapedProductModel)
+            .where(ScrapedProductModel.scraping_run_id == run_id)
+            .order_by(ScrapedProductModel.created_at, ScrapedProductModel.id)
+        )
+        if statuses is not None:
+            statement = statement.where(ScrapedProductModel.estado.in_(statuses))
+        models = await self._session.scalars(statement)
+        return [scraped_product_model_to_entity(model) for model in models.all()]

@@ -1,5 +1,6 @@
 """Adaptador SQLAlchemy asíncrono para el puerto de precios."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -107,6 +108,22 @@ class SQLAlchemyPriceRepository(PriceRepositoryPort):
 
         models = await self._session.scalars(statement)
         return [price_model_to_entity(model) for model in models.all()]
+
+    async def find_by_product_source_branch_and_observed_at(
+        self,
+        product_source_id: UUID,
+        branch_id: UUID,
+        observed_at: datetime,
+    ) -> Price | None:
+        """Finds the same observation before inserting it again."""
+        model = await self._session.scalar(
+            select(PriceModel).where(
+                PriceModel.producto_fuente_id == product_source_id,
+                PriceModel.sucursal_id == branch_id,
+                PriceModel.fecha_relevamiento == observed_at,
+            )
+        )
+        return price_model_to_entity(model) if model is not None else None
 
     async def save(self, price: Price) -> Price:
         """Crea o actualiza un precio sin confirmar la transacción."""

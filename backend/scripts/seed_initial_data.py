@@ -56,6 +56,7 @@ SCRAPING_SOURCES = (
         "supermarket": "La Coope",
         "name": "La Coope public catalog pilot",
         "base_url": "https://api.lacoopeencasa.coop",
+        "branch_key": "la_coope_kennedy_145",
     },
 )
 
@@ -95,6 +96,16 @@ BRANCHES = (
         "address": "Av. Moyano 900",
         "latitude": Decimal("-45.9250"),
         "longitude": Decimal("-67.5550"),
+    },
+    {
+        "key": "la_coope_kennedy_145",
+        "supermarket": "La Coope",
+        "city": "Comodoro Rivadavia",
+        "name": "Sucursal 145 Kennedy",
+        "address": "Av. J. F. Kennedy 3091, esquina Patricios",
+        # Coordinate fallback until the branch point is verified with a trusted geocoder.
+        "latitude": Decimal("-45.8641"),
+        "longitude": Decimal("-67.4966"),
     },
 )
 
@@ -323,6 +334,7 @@ async def get_or_create_scraping_source(
     supermarket_id: UUID,
     name: str,
     base_url: str,
+    branch_id: UUID | None,
 ) -> tuple[ScrapingSourceModel, bool]:
     """Creates the configured Jumbo pilot source once, without creating any prices."""
     source = await session.scalar(
@@ -332,6 +344,8 @@ async def get_or_create_scraping_source(
         )
     )
     if source is not None:
+        source.sucursal_id = branch_id
+        await session.flush()
         return source, False
 
     source = ScrapingSourceModel(
@@ -339,6 +353,7 @@ async def get_or_create_scraping_source(
         supermercado_id=supermarket_id,
         nombre=name,
         base_url=base_url,
+        sucursal_id=branch_id,
         activo=True,
     )
     session.add(source)
@@ -542,15 +557,6 @@ async def seed_initial_data() -> None:
                     supermarkets[supermarket_data["name"]] = supermarket
                     summary.record("supermarkets", created)
 
-                for source_data in SCRAPING_SOURCES:
-                    _, created = await get_or_create_scraping_source(
-                        session,
-                        supermarkets[source_data["supermarket"]].id,
-                        source_data["name"],
-                        source_data["base_url"],
-                    )
-                    summary.record("scraping_sources", created)
-
                 branches: dict[str, BranchModel] = {}
                 branch_supermarkets: dict[str, str] = {}
                 for branch_data in BRANCHES:
@@ -566,6 +572,18 @@ async def seed_initial_data() -> None:
                     branches[branch_data["key"]] = branch
                     branch_supermarkets[branch_data["key"]] = branch_data["supermarket"]
                     summary.record("branches", created)
+
+                for source_data in SCRAPING_SOURCES:
+                    branch_key = source_data.get("branch_key")
+                    branch_id = branches[branch_key].id if branch_key is not None else None
+                    _, created = await get_or_create_scraping_source(
+                        session,
+                        supermarkets[source_data["supermarket"]].id,
+                        source_data["name"],
+                        source_data["base_url"],
+                        branch_id,
+                    )
+                    summary.record("scraping_sources", created)
 
                 categories: dict[str, ProductCategoryModel] = {}
                 for category_name in ("Bebidas", "Lácteos", "Almacén", "Limpieza", "Higiene personal"):

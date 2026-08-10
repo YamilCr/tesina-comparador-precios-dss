@@ -6,7 +6,11 @@ from app.modules.catalog.infrastructure.persistence import (
     ProductModel,
     ProductSourceModel,
 )
-from app.modules.ingestion.infrastructure.persistence import ScrapingRunModel, ScrapingSourceModel
+from app.modules.ingestion.infrastructure.persistence import (
+    ScrapedProductModel,
+    ScrapingRunModel,
+    ScrapingSourceModel,
+)
 from app.modules.prices.infrastructure.persistence import PriceModel
 from app.modules.supermarkets.infrastructure.persistence import (
     BranchModel,
@@ -25,6 +29,7 @@ __all__ = [
     "ProductSourceModel",
     "ProvinceModel",
     "ScrapingRunModel",
+    "ScrapedProductModel",
     "ScrapingSourceModel",
     "SupermarketModel",
 ]

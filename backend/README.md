@@ -60,7 +60,8 @@ Excluido por ahora:
 - Puertos, repositorios SQLAlchemy, Unit of Work, seed y ranking DSS: completo para el core.
 - Endpoints minimos v1: completo.
 - Scrapers reales limitados para Jumbo y La Coope, con auditoria automatica: completo como piloto.
-- ETL real, matching con catalogo y carga de precios: pendiente.
+- ETL de staging, calidad, deduplicacion, matching exacto y carga idempotente de historial: completo.
+- Validacion de ubicacion y sucursal por cada cadena: pendiente antes de publicar precios reales por ciudad.
 
 ## Desarrollo local
 
@@ -115,6 +116,8 @@ Migraciones actuales:
 
 - `0001`: esquema inicial del DSS de precios.
 - `0002`: tablas `scraping_source` y `scraping_run`.
+- `0003`: staging `producto_extraido` para calidad, deduplicacion y trazabilidad ETL.
+- `0004`: sucursal destino opcional para cada fuente de scraping.
 
 ## Seed inicial
 
@@ -246,6 +249,10 @@ corrida como exitosa o fallida. Sus resultados se imprimen como JSON y `items_lo
 el catalogo, matching y carga de precios siguen siendo responsabilidad de la
 siguiente etapa ETL.
 
+Antes de pasar a staging, el piloto de La Coope exige que todos los terminos
+significativos de la consulta aparezcan en el nombre o la marca. Esto evita que
+la busqueda amplia del proveedor cargue articulos ajenos a la frase solicitada.
+
 Tras aplicar la migracion y el seed, obtene el identificador de la fuente:
 
 ```powershell
@@ -294,6 +301,64 @@ de ubicacion del sitio y asociarlos a una sucursal durante el ETL.
 
 Si se configura una `DATABASE_URL` diferente, aplica `alembic upgrade head` y el
 seed sobre esa misma base antes de ejecutar el scraper.
+
+## ETL y calidad
+
+Cada corrida exitosa conserva sus items en `producto_extraido`. El proceso ETL:
+
+- valida codigo externo, nombre y precio positivo dentro de un limite razonable;
+- marca duplicados dentro de la misma corrida sin descartarlos de la auditoria;
+- reutiliza una publicacion existente por supermercado y codigo externo;
+- relaciona nombres con la misma clave normalizada o crea un producto valido;
+- inserta una observacion de precio por producto fuente, sucursal y fecha sin
+  duplicar el historial al reejecutarse.
+
+La fuente puede tener una sucursal destino configurada; en ese caso el ETL la usa
+por defecto. Tambien se puede indicar una sucursal activa de la misma cadena como
+override puntual:
+
+La sucursal piloto de La Coope tiene una direccion oficial validada, pero conserva
+temporalmente las coordenadas de referencia de Comodoro Rivadavia hasta geocodificar
+el local. Su distancia en el ranking no debe tomarse como una medicion real.
+
+```powershell
+uv run python -m app.modules.ingestion.interfaces.cli.run_etl `
+  --run-id <UUID_DE_LA_CORRIDA>
+```
+
+```powershell
+uv run python -m app.modules.ingestion.interfaces.cli.run_etl `
+  --run-id <UUID_DE_LA_CORRIDA> `
+  --branch-id <UUID_DE_SUCURSAL_DE_LA_MISMA_CADENA>
+```
+
+Usa `--no-create-products` para dejar productos sin coincidencia exacta en estado
+`unmatched` en vez de crear un producto normalizado. La fuente debe tener una
+sucursal real validada antes de que sus precios se utilicen en la UI o el ranking.
+
+## Actualizacion administrativa
+
+El backend tambien ofrece una operacion unica para extraer y cargar una fuente
+configurada, pensada para una futura vista administrativa y no para el flujo de
+compras publico. Recibe hasta cinco consultas y un limite maximo de veinte
+resultados por consulta:
+
+```powershell
+$body = @{
+  scraper = "coope"
+  queries = @("gancia")
+  city = "Comodoro Rivadavia"
+  limit = 5
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body `
+  http://127.0.0.1:8000/api/v1/ingestion/sources/<UUID_DE_FUENTE>/refresh
+```
+
+La respuesta incluye la corrida auditada y el resumen de calidad/carga del ETL.
 
 La API de administracion permite crear, listar y activar/desactivar fuentes,
 iniciar una corrida por fuente y finalizarla como exitosa o fallida. Solo se

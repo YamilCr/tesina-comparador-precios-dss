@@ -1,6 +1,8 @@
 """Tests for the pure La Coope payload transformation used by the pilot."""
 
-from app.modules.ingestion.infrastructure.scrapers import normalize_coope_product
+import pytest
+
+from app.modules.ingestion.infrastructure.scrapers import CoopeScraper, normalize_coope_product
 
 
 def test_normalize_coope_product_keeps_the_extractable_fields() -> None:
@@ -39,3 +41,33 @@ def test_normalize_coope_product_rejects_missing_or_non_positive_price() -> None
     }
 
     assert normalize_coope_product(item) is None
+
+
+@pytest.mark.asyncio
+async def test_coope_search_keeps_only_results_relevant_to_the_query() -> None:
+    scraper = CoopeScraper(["gancia"])
+
+    async def fake_get_json(*_args, **_kwargs):
+        return {
+            "estado": 1,
+            "datos": [
+                {
+                    "cod_interno": "gancia-1",
+                    "descripcion": "Aperitivo Americano Gancia 950 cm3",
+                    "marca_desc": "Gancia",
+                    "precio": "7290",
+                },
+                {
+                    "cod_interno": "perfume-1",
+                    "descripcion": "Fragancia Paulvic Gold For Men 50 cm3",
+                    "marca_desc": "Paulvic",
+                    "precio": "15719",
+                },
+            ],
+        }
+
+    scraper._get_json_with_retry = fake_get_json
+
+    products = await scraper.search_product(None, "gancia")
+
+    assert [product["external_id"] for product in products] == ["gancia-1"]

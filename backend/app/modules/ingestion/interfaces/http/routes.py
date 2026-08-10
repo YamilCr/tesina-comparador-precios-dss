@@ -20,16 +20,23 @@ from app.modules.ingestion.application.use_cases import (
     FailScrapingRunUseCase,
     ListScrapingRunsUseCase,
     ListScrapingSourcesUseCase,
+    RefreshScrapingSourceUseCase,
     StartScrapingRunUseCase,
     UpdateScrapingSourceUseCase,
 )
+from app.modules.ingestion.domain.entities import ScrapingSource
+from app.modules.ingestion.domain.ports import ScraperPort
+from app.modules.ingestion.infrastructure.scrapers import CoopeScraper, JumboScraper
 from app.shared.application import UnitOfWorkPort
 from app.shared.interfaces.http import collection_response
 
 from .schemas import (
     CompleteScrapingRunRequest,
     CreateScrapingSourceRequest,
+    EtlLoadResultResponse,
     FailScrapingRunRequest,
+    RefreshScrapingSourceRequest,
+    ScrapingRefreshResponse,
     ScrapingRunResponse,
     ScrapingSourceResponse,
     UpdateScrapingSourceRequest,
@@ -46,6 +53,7 @@ def _source_payload(source: ScrapingSourceDTO) -> dict:
         supermarket_id=source.supermarket_id,
         name=source.name,
         base_url=source.base_url,
+        branch_id=source.branch_id,
         active=source.active,
         created_at=source.created_at,
     ).model_dump(mode="json")
@@ -61,6 +69,22 @@ def _run_payload(run: ScrapingRunDTO) -> dict:
         items_scraped=run.items_scraped,
         items_loaded=run.items_loaded,
         error_message=run.error_message,
+    ).model_dump(mode="json")
+
+
+def _refresh_payload(refresh) -> dict:
+    return ScrapingRefreshResponse(
+        run=ScrapingRunResponse(**_run_payload(refresh.run)),
+        load=EtlLoadResultResponse(
+            run_id=refresh.load.run_id,
+            processed=refresh.load.processed,
+            loaded=refresh.load.loaded,
+            rejected=refresh.load.rejected,
+            duplicates=refresh.load.duplicates,
+            unmatched=refresh.load.unmatched,
+            created_products=refresh.load.created_products,
+            created_prices=refresh.load.created_prices,
+        ),
     ).model_dump(mode="json")
 
 
@@ -95,6 +119,7 @@ async def create_scraping_source(
                 supermarket_id=request.supermarket_id,
                 name=request.name,
                 base_url=request.base_url,
+                branch_id=request.branch_id,
                 active=request.active,
             )
         )
@@ -115,6 +140,7 @@ async def update_scraping_source(
                 source_id=source_id,
                 name=request.name,
                 base_url=request.base_url,
+                branch_id=request.branch_id,
                 active=request.active,
             )
         )
@@ -145,6 +171,35 @@ async def start_scraping_run(source_id: UUID, uow: UnitOfWorkDependency) -> dict
     except ValueError as error:
         _raise_ingestion_error(error)
     return _run_payload(run)
+
+
+@router.post("/sources/{source_id}/refresh")
+async def refresh_scraping_source(
+    source_id: UUID,
+    request: RefreshScrapingSourceRequest,
+    uow: UnitOfWorkDependency,
+) -> dict:
+    """Runs a bounded external extraction and loads its validated price history."""
+
+    def create_scraper(source: ScrapingSource) -> ScraperPort:
+        scraper_class = JumboScraper if request.scraper == "jumbo" else CoopeScraper
+        return scraper_class(
+            request.queries,
+            city=request.city,
+            base_url=source.base_url,
+            result_limit=request.limit,
+        )
+
+    try:
+        refresh = await RefreshScrapingSourceUseCase(uow, create_scraper).execute(source_id)
+    except ValueError as error:
+        _raise_ingestion_error(error)
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Scraper failed: {error}",
+        ) from error
+    return _refresh_payload(refresh)
 
 
 @router.post("/runs/{run_id}/succeed")

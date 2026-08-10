@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.modules.catalog.domain.entities import Brand
+from app.modules.catalog.domain.entities import Brand, Product
 from app.modules.catalog.infrastructure.persistence import (
     SQLAlchemyBrandRepository,
     SQLAlchemyProductRepository,
@@ -81,6 +81,27 @@ async def test_sqlalchemy_repositories_read_seeded_catalog_and_prices(
             seed_data.la_coca_current_price_id,
             seed_data.la_coca_old_price_id,
         ]
+
+
+@pytest.mark.asyncio
+async def test_product_search_matches_complete_terms_not_substrings(
+    sqlite_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with sqlite_session_factory() as session:
+        products = SQLAlchemyProductRepository(session)
+        await products.save(
+            Product(id=uuid4(), normalized_name="Aperitivo Gancia Americano 950 cm3")
+        )
+        await products.save(
+            Product(id=uuid4(), normalized_name="Fragancia Paulvic Gold For Men 50 cm3")
+        )
+        await session.commit()
+
+        results = await products.search_by_name("gancia")
+
+    assert [product.normalized_name for product in results] == [
+        "Aperitivo Gancia Americano 950 cm3"
+    ]
 
 
 @pytest.mark.asyncio

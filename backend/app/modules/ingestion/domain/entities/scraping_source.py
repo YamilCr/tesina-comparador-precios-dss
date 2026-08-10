@@ -13,6 +13,7 @@ class ScrapingSource:
     supermarket_id: UUID
     name: str
     base_url: str
+    branch_id: UUID | None = None
     active: bool = True
     created_at: datetime | None = None
 
@@ -38,6 +39,7 @@ class ScrapingSource:
         *,
         name: str | None = None,
         base_url: str | None = None,
+        branch_id: UUID | None = None,
         active: bool | None = None,
     ) -> None:
         """Updates the source configuration while preserving domain validation."""
@@ -49,5 +51,7 @@ class ScrapingSource:
             if not base_url.strip():
                 raise ValueError("Scraping source base URL cannot be empty.")
             self.base_url = base_url.strip()
+        if branch_id is not None:
+            self.branch_id = branch_id
         if active is not None:
             self.active = active

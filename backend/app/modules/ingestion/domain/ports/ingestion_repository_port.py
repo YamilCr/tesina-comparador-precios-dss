@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from app.modules.ingestion.domain.entities import ScrapingRun, ScrapingSource
+from app.modules.ingestion.domain.entities import ScrapedProduct, ScrapingRun, ScrapingSource
 
 
 class IngestionRepositoryPort(ABC):
@@ -48,3 +48,18 @@ class IngestionRepositoryPort(ABC):
     @abstractmethod
     async def save_run(self, run: ScrapingRun) -> ScrapingRun:
         """Creates or updates a run without committing the transaction."""
+
+    @abstractmethod
+    async def save_scraped_products(
+        self,
+        products: list[ScrapedProduct],
+    ) -> list[ScrapedProduct]:
+        """Stores raw extracted products and their ETL processing result."""
+
+    @abstractmethod
+    async def list_scraped_products(
+        self,
+        run_id: UUID,
+        statuses: set[str] | None = None,
+    ) -> list[ScrapedProduct]:
+        """Lists raw products for one run, optionally filtered by processing status."""

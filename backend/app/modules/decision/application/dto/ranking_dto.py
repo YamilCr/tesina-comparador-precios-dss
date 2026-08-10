@@ -1,11 +1,10 @@
 """DTOs de aplicación para solicitar y devolver rankings DSS."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from app.modules.basket.application.dto import BasketItemInputDTO
 from app.modules.decision.application.commands import GenerateRankingCommand
 from app.modules.decision.domain.value_objects import CriteriaWeights
 

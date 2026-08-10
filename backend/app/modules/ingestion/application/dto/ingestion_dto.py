@@ -13,6 +13,7 @@ class ScrapingSourceDTO:
     supermarket_id: UUID
     name: str
     base_url: str
+    branch_id: UUID | None
     active: bool
     created_at: datetime | None
 
@@ -23,6 +24,7 @@ class ScrapingSourceDTO:
             supermarket_id=source.supermarket_id,
             name=source.name,
             base_url=source.base_url,
+            branch_id=source.branch_id,
             active=source.active,
             created_at=source.created_at,
         )
@@ -59,3 +61,25 @@ class ScrapingExecutionDTO:
 
     run: ScrapingRunDTO
     items: list[dict]
+
+
+@dataclass(frozen=True)
+class ScrapingRefreshDTO:
+    """Reports a complete extraction and ETL refresh for one configured source."""
+
+    run: ScrapingRunDTO
+    load: "EtlLoadResultDTO"
+
+
+@dataclass(frozen=True)
+class EtlLoadResultDTO:
+    """Summarizes a repeatable ETL pass over one successful scraping run."""
+
+    run_id: UUID
+    processed: int
+    loaded: int
+    rejected: int
+    duplicates: int
+    unmatched: int
+    created_products: int
+    created_prices: int

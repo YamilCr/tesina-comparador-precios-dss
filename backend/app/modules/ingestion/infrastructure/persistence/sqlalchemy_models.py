@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -13,6 +14,8 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
+    Numeric,
     String,
     UniqueConstraint,
     Uuid,
@@ -38,6 +41,7 @@ class ScrapingSourceModel(Base):
             name="uq_scraping_source_supermercado_nombre",
         ),
         Index("ix_scraping_source_supermercado_id", "supermercado_id"),
+        Index("ix_scraping_source_sucursal_id", "sucursal_id"),
         Index("ix_scraping_source_nombre", "nombre"),
         Index("ix_scraping_source_activo", "activo"),
     )
@@ -47,6 +51,7 @@ class ScrapingSourceModel(Base):
         ForeignKey("supermercado.id"),
         nullable=False,
     )
+    sucursal_id: Mapped[UUID | None] = mapped_column(ForeignKey("sucursal.id"), nullable=True)
     nombre: Mapped[str] = mapped_column(String(255), nullable=False)
     base_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     activo: Mapped[bool] = mapped_column(
@@ -122,3 +127,42 @@ class ScrapingRunModel(Base):
     mensaje_error: Mapped[str | None] = mapped_column(String(2000), nullable=True)
 
     source: Mapped[ScrapingSourceModel] = relationship(back_populates="runs")
+    scraped_products: Mapped[list["ScrapedProductModel"]] = relationship(back_populates="run")
+
+
+class ScrapedProductModel(Base):
+    """Maps raw extracted items and their ETL quality outcome."""
+
+    __tablename__ = "producto_extraido"
+    __table_args__ = (
+        CheckConstraint(
+            "estado IN ('pending', 'loaded', 'rejected', 'duplicate', 'unmatched')",
+            name="ck_producto_extraido_estado_valido",
+        ),
+        Index("ix_producto_extraido_run_id", "scraping_run_id"),
+        Index("ix_producto_extraido_estado", "estado"),
+        Index("ix_producto_extraido_codigo_externo", "codigo_externo"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    scraping_run_id: Mapped[UUID] = mapped_column(ForeignKey("scraping_run.id"), nullable=False)
+    codigo_externo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ean: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    nombre: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    marca: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    precio: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    presentacion: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    url_producto: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    payload_crudo: Mapped[dict] = mapped_column(JSON, nullable=False)
+    estado: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
+    mensaje_calidad: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    producto_fuente_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("producto_fuente.id"), nullable=True
+    )
+    precio_id: Mapped[UUID | None] = mapped_column(ForeignKey("precio.id"), nullable=True)
+    procesado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    run: Mapped[ScrapingRunModel] = relationship(back_populates="scraped_products")

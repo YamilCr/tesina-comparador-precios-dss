@@ -70,3 +70,11 @@ class ScrapingRun:
         self.status = "failed"
         self.finished_at = finished_at
         self.error_message = error_message.strip()
+
+    def record_loaded_items(self, items_loaded: int) -> None:
+        """Updates the ETL outcome after a successful extraction has been processed."""
+        if self.status != "succeeded":
+            raise ValueError("Only succeeded scraping runs can record loaded items.")
+        if items_loaded < 0 or items_loaded > self.items_scraped:
+            raise ValueError("Loaded item count must be between zero and scraped item count.")
+        self.items_loaded = items_loaded

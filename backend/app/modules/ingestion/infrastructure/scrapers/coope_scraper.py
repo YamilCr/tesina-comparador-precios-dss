@@ -9,6 +9,8 @@ import aiohttp
 
 from app.modules.ingestion.domain.ports import ScraperPort
 
+from .query_relevance import matches_query
+
 CHAIN_SLUG = "lacoopeencasa"
 DEFAULT_CITY = "Comodoro Rivadavia"
 DEFAULT_BASE_URL = "https://api.lacoopeencasa.coop"
@@ -84,10 +86,19 @@ class CoopeScraper(ScraperPort):
         items = data.get("datos")
         if not isinstance(items, list):
             return []
-        return [
+        products = [
             product
             for item in items[: self._result_limit]
             if (product := normalize_coope_product(item, city=self._city))
+        ]
+        return [
+            product
+            for product in products
+            if matches_query(
+                query=query,
+                name=product["name"],
+                brand=product["brand"],
+            )
         ]
 
     async def _get_json_with_retry(

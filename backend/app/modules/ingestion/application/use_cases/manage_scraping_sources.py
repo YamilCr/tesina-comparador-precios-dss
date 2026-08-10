@@ -23,10 +23,16 @@ class CreateScrapingSourceUseCase:
             supermarket_id=command.supermarket_id,
             name=command.name,
             base_url=command.base_url,
+            branch_id=command.branch_id,
             active=command.active,
         )
         async with self._unit_of_work as uow:
             await _require_active_supermarket(uow, source.supermarket_id)
+            await _require_active_branch_for_supermarket(
+                uow,
+                source.branch_id,
+                source.supermarket_id,
+            )
             duplicate = await uow.ingestion.get_source_by_supermarket_and_name(
                 source.supermarket_id,
                 source.name,
@@ -49,9 +55,15 @@ class UpdateScrapingSourceUseCase:
             source = await uow.ingestion.get_source_by_id(command.source_id)
             if source is None:
                 raise ValueError("Scraping source not found.")
+            await _require_active_branch_for_supermarket(
+                uow,
+                command.branch_id,
+                source.supermarket_id,
+            )
             source.update_configuration(
                 name=command.name,
                 base_url=command.base_url,
+                branch_id=command.branch_id,
                 active=command.active,
             )
             duplicate = await uow.ingestion.get_source_by_supermarket_and_name(
@@ -81,3 +93,18 @@ async def _require_active_supermarket(uow: UnitOfWorkPort, supermarket_id: UUID)
     supermarket = await uow.supermarkets.get_by_id(supermarket_id)
     if supermarket is None or not supermarket.active:
         raise ValueError("Supermarket not found or inactive.")
+
+
+async def _require_active_branch_for_supermarket(
+    uow: UnitOfWorkPort,
+    branch_id: UUID | None,
+    supermarket_id: UUID,
+) -> None:
+    """Validates the optional default destination for source ETL loads."""
+    if branch_id is None:
+        return
+    branch = await uow.branches.get_by_id(branch_id)
+    if branch is None or not branch.active:
+        raise ValueError("Branch not found or inactive.")
+    if branch.supermarket_id != supermarket_id:
+        raise ValueError("Branch must belong to the scraping source supermarket.")

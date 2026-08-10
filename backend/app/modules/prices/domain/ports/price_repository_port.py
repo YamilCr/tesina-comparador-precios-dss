@@ -1,6 +1,7 @@
 """Contrato de acceso a precios vigentes e históricos del dominio."""
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from uuid import UUID
 
 from ..entities.price import Price
@@ -40,6 +41,15 @@ class PriceRepositoryPort(ABC):
         branch_id: UUID | None = None,
     ) -> list[Price]:
         """Obtiene el historial de precios de una publicación y sucursal opcional."""
+
+    @abstractmethod
+    async def find_by_product_source_branch_and_observed_at(
+        self,
+        product_source_id: UUID,
+        branch_id: UUID,
+        observed_at: datetime,
+    ) -> Price | None:
+        """Finds a historical observation to make ETL loading idempotent."""
 
     @abstractmethod
     async def save(self, price: Price) -> Price:

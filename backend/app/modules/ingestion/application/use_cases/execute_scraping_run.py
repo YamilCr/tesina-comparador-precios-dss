@@ -14,6 +14,9 @@ from app.modules.ingestion.application.use_cases.manage_scraping_runs import (
     FailScrapingRunUseCase,
     StartScrapingRunUseCase,
 )
+from app.modules.ingestion.application.use_cases.store_scraped_products import (
+    StoreScrapedProductsUseCase,
+)
 from app.modules.ingestion.domain.entities import ScrapingSource
 from app.modules.ingestion.domain.ports import ScraperPort
 from app.shared.application import UnitOfWorkPort
@@ -38,6 +41,7 @@ class ExecuteScrapingRunUseCase:
 
         try:
             items = await self._scraper_factory(source).scrape()
+            await StoreScrapedProductsUseCase(self._unit_of_work).execute(started_run.id, items)
         except Exception as error:
             await FailScrapingRunUseCase(self._unit_of_work).execute(
                 FailScrapingRunCommand(
