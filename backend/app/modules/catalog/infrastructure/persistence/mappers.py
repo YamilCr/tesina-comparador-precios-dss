@@ -52,6 +52,7 @@ def product_source_model_to_entity(model: ProductSourceModel) -> ProductSource:
         product_url=model.url_producto,
         original_unit=model.unidad_original,
         match_confidence=model.confianza_match,
+        gtin=model.gtin,
         active=model.activo,
     )
 
@@ -103,5 +104,6 @@ def product_source_entity_to_model(entity: ProductSource) -> ProductSourceModel:
         url_producto=entity.product_url,
         unidad_original=entity.original_unit,
         confianza_match=entity.match_confidence,
+        gtin=entity.gtin,
         activo=entity.active,
     )

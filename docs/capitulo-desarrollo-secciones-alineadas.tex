@@ -1,0 +1,355 @@
+% Secciones corregidas para reemplazar desde "Tecnologias Utilizadas" hasta
+% "Integracion del Sistema" en el capitulo Desarrollo del Sistema.
+% El resto del capitulo (introduccion, requerimientos y diseno) puede conservarse.
+
+\subsection{Tecnologías Utilizadas}
+
+La implementación del sistema requirió tecnologías orientadas al desarrollo
+web, la persistencia relacional, la extracción de datos y el procesamiento
+asíncrono. La selección definitiva quedó conformada por las siguientes
+herramientas:
+
+\begin{itemize}
+    \item \textit{Frontend}: Vue.js 3, TypeScript, Vite, Pinia y Tailwind CSS
+    \cite{vuejs}.
+    \item \textit{Backend}: Python 3.11 o superior y FastAPI
+    \cite{pythondocs,fastapi}.
+    \item \textit{Persistencia}: SQLAlchemy como ORM y Alembic para el control
+    versionado del esquema \cite{sqlalchemy}.
+    \item \textit{Base de datos de demostración}: SQLite, utilizada para el
+    desarrollo local, las migraciones y las pruebas de integración.
+    \item \textit{Base de datos objetivo de producción}: PostgreSQL, soportada
+    por la configuración y los adaptadores de persistencia, pero pendiente de
+    validación integral en un ambiente productivo \cite{postgresdocs}.
+    \item \textit{Validación y serialización}: Pydantic \cite{pydantic}.
+    \item \textit{Scraping HTTP}: \texttt{aiohttp}, utilizado para consumir de
+    forma asíncrona los catálogos y API públicas disponibles.
+    \item \textit{Scraping con navegador}: Playwright, utilizado para fuentes
+    cuyo contenido requiere ejecución de JavaScript \cite{playwright}.
+    \item \textit{Concurrencia}: \texttt{asyncio}, mediante grupos de tareas,
+    semáforos, colas y límites temporales \cite{pythondocs}.
+    \item \textit{Pruebas y calidad}: pytest, pytest-asyncio, Vitest y Ruff.
+    \item \textit{Control de versiones}: Git y GitHub \cite{github}.
+\end{itemize}
+
+No se utilizaron Requests, Beautiful Soup ni \texttt{httpx} en los adaptadores
+de scraping vigentes. Los catálogos estáticos o públicos se consultan como datos
+JSON mediante \texttt{aiohttp}, mientras que La Anónima se procesa mediante
+Playwright.
+
+\subsection{Implementación del Backend}
+
+El backend fue desarrollado con FastAPI y organizado como un monolito modular
+con principios de Arquitectura Limpia y Arquitectura Hexagonal. Los módulos
+\texttt{catalog}, \texttt{supermarkets}, \texttt{prices}, \texttt{basket},
+\texttt{geo}, \texttt{decision} e \texttt{ingestion} separan entidades de
+dominio, casos de uso, puertos, adaptadores de infraestructura e interfaces HTTP.
+
+La lógica de negocio no depende directamente de FastAPI ni de SQLAlchemy. Los
+casos de uso operan mediante puertos y una Unidad de Trabajo que coordina los
+repositorios y las transacciones. Esta organización permite reemplazar SQLite
+por PostgreSQL sin modificar el dominio ni el modelo de decisión.
+
+La API pública utiliza el prefijo \texttt{/api/v1}. Sus operaciones principales
+se resumen en la Tabla~\ref{tab:endpoints_api_reales}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{|p{5.6cm}|p{1.5cm}|p{6cm}|}
+\hline
+\textbf{Endpoint} & \textbf{Método} & \textbf{Función} \\
+\hline
+\texttt{/health} & GET & Consultar el estado básico del backend. \\
+\hline
+\texttt{/api/v1/catalog/products} & GET & Buscar productos del catálogo normalizado. \\
+\hline
+\texttt{/api/v1/catalog/categories} & GET & Consultar categorías disponibles. \\
+\hline
+\texttt{/api/v1/catalog/brands} & GET & Consultar marcas registradas. \\
+\hline
+\texttt{/api/v1/locations/cities} & GET & Consultar ciudades y coordenadas de referencia. \\
+\hline
+\texttt{/api/v1/supermarkets} & GET & Consultar cadenas de supermercados. \\
+\hline
+\texttt{/api/v1/branches} & GET & Consultar sucursales por ciudad o supermercado. \\
+\hline
+\texttt{/api/v1/prices/current} & GET & Consultar precios vigentes y métricas de calidad. \\
+\hline
+\texttt{/api/v1/prices/history} & GET & Consultar el historial de una publicación. \\
+\hline
+\texttt{/api/v1/prices/compare} & GET & Comparar precios de productos normalizados. \\
+\hline
+\texttt{/api/v1/basket/validate} & POST & Validar una canasta temporal. \\
+\hline
+\texttt{/api/v1/decisions/ranking} & POST & Generar el ranking multicriterio. \\
+\hline
+\texttt{/api/v1/ingestion/sources} & GET/POST & Listar o crear fuentes de extracción. \\
+\hline
+\texttt{/api/v1/ingestion/sources/refresh-concurrently} & POST & Actualizar varias fuentes concurrentemente. \\
+\hline
+\end{tabular}
+\caption{Principales endpoints implementados en la API v1}
+\label{tab:endpoints_api_reales}
+\end{table}
+
+Además de estas operaciones, la API de ingestión permite actualizar la
+configuración de una fuente, consultar corridas y finalizar una corrida como
+exitosa o fallida. Estas funciones proporcionan trazabilidad administrativa y
+no forman parte del flujo de compra del usuario final.
+
+\subsection{Implementación del Scraping}
+
+El módulo de scraping utiliza un contrato común que permite incorporar fuentes
+sin modificar los casos de uso de ingestión. Cada fuente configurada conserva
+el supermercado asociado, la sucursal de destino, la URL base, el adaptador a
+utilizar y su estado de activación.
+
+La demostración integra cuatro adaptadores reales:
+
+\begin{itemize}
+    \item \textit{Carrefour}: consulta su infraestructura VTEX mediante
+    \texttt{aiohttp}. El adaptador crea una sesión de compra, asocia el código
+    postal configurado y registra si la ubicación fue confirmada.
+    \item \textit{Jumbo}: consulta el catálogo público mediante solicitudes
+    HTTP asíncronas.
+    \item \textit{La Coope}: consulta su API pública y filtra resultados que no
+    contienen los términos significativos de búsqueda.
+    \item \textit{La Anónima}: utiliza Playwright porque el catálogo depende de
+    contenido dinámico ejecutado en el navegador.
+\end{itemize}
+
+Todos los adaptadores devuelven el mismo contrato de producto extraído, que
+incluye código externo, identificador comercial, nombre, marca, precio,
+presentación, URL, imagen, fuente y ciudad declarada. Los resultados se validan
+y se almacenan primero en una tabla de staging antes de modificar el catálogo o
+el historial de precios.
+
+El alcance actual corresponde a un piloto para Comodoro Rivadavia y un conjunto
+reducido de productos. Los catálogos públicos de Jumbo y La Coope no permiten
+confirmar por sí solos una sucursal física. Por este motivo, sus precios deben
+interpretarse como datos del piloto asociado y no como cobertura nacional ni
+como evidencia de disponibilidad en cualquier local de la cadena.
+
+\subsection{Implementación de la Concurrencia y Alcance del Paralelismo}
+
+Las tareas de extracción están limitadas principalmente por operaciones de
+entrada/salida, como la latencia de red y el tiempo de respuesta de los sitios
+externos. En consecuencia, se adoptó concurrencia asíncrona en lugar de
+paralelismo de CPU.
+
+El caso de uso de actualización concurrente implementa los siguientes
+mecanismos:
+
+\begin{itemize}
+    \item \texttt{asyncio.TaskGroup} para administrar las tareas por fuente;
+    \item \texttt{asyncio.Semaphore} para limitar la concurrencia máxima;
+    \item \texttt{asyncio.Queue} para entregar resultados de extracción;
+    \item límites temporales por fuente mediante \texttt{asyncio.timeout};
+    \item aislamiento de fallos, de modo que el error de una fuente no cancela
+    los resultados válidos de las restantes;
+    \item persistencia ETL controlada y serializada después de cada extracción.
+\end{itemize}
+
+Los adaptadores HTTP también reutilizan una sesión y limitan las consultas
+simultáneas. Para La Anónima se implementó un pool acotado de páginas: una única
+instancia de Chromium mantiene varios contextos y páginas reutilizables, cada
+una asignada de forma exclusiva mientras procesa una consulta. Por lo tanto, no
+se crea un navegador independiente por cada worker.
+
+En Windows, Playwright puede ejecutarse en un hilo dedicado con un bucle Proactor
+cuando el servidor utiliza un bucle incompatible con la creación de subprocesos.
+Este mecanismo resuelve una restricción de integración y no constituye
+paralelismo de cálculo intensivo.
+
+El benchmark final realizado con Carrefour, La Coope y La Anónima registró tres
+repeticiones completas por modalidad. El promedio secuencial fue de
+aproximadamente 5489 milisegundos y el concurrente de 4399 milisegundos, lo que
+representó una reducción media del 19,9\%. Las seis ejecuciones comparadas
+completaron correctamente las tres fuentes. Estos resultados corresponden al
+entorno local y al conjunto acotado de consultas del experimento; no deben
+generalizarse como una garantía de rendimiento para cualquier carga o condición
+de red.
+
+No se implementó todavía paralelismo de CPU basado en múltiples procesos. Su
+incorporación se considera una optimización futura para lotes masivos de
+normalización o matching, siempre que una medición demuestre que esas tareas se
+convierten en el cuello de botella.
+
+\subsection{Implementación del Pipeline ETL}
+
+El pipeline ETL se ejecuta después de cada extracción exitosa y mantiene una
+traza auditable desde el dato crudo hasta el precio cargado. Sus etapas son:
+
+\begin{enumerate}
+    \item almacenamiento inmutable del resultado extraído en staging;
+    \item validación de código externo, nombre y precio positivo;
+    \item detección de códigos repetidos dentro de la misma corrida;
+    \item limpieza de precios, nombres y presentaciones;
+    \item normalización de unidades comparables, por ejemplo litros a
+    mililitros y kilogramos a gramos;
+    \item validación de GTIN-8, GTIN-12, GTIN-13 y GTIN-14 mediante su dígito
+    verificador;
+    \item resolución de identidad por publicación conocida, GTIN válido o
+    equivalencia estructural no ambigua;
+    \item creación controlada de productos y publicaciones faltantes;
+    \item carga idempotente del historial de precios;
+    \item registro del resultado como cargado, rechazado, duplicado o sin
+    coincidencia.
+\end{enumerate}
+
+La identidad canónica conserva separada la entidad \textit{Producto}, utilizada
+para comparar cadenas, de \textit{ProductoFuente}, que representa la publicación
+original de cada supermercado. Los casos ambiguos no se fusionan automáticamente.
+El sistema genera una cola de revisión asistida donde cada aprobación o rechazo
+queda acompañado por evidencia, confianza, nota de decisión y fecha.
+
+La normalización automática de categorías externas no está terminada. El
+pipeline vigente normaliza nombres, precios, marcas cuando existe evidencia
+consistente, unidades, presentaciones e identificadores; por lo tanto, no se
+afirma todavía una unificación completa de categorías entre cadenas.
+
+Antes de utilizar un precio en una comparación se aplica además una política de
+calidad operativa. Por defecto se excluyen precios con más de catorce días y se
+marcan como sospechosos los desvíos extremos respecto de la mediana histórica,
+siempre que existan al menos dos observaciones anteriores. El ranking informa
+si un producto quedó fuera por ausencia, antigüedad o anomalía.
+
+\subsection{Implementación de la Base de Datos}
+
+La demostración local utiliza SQLite y se encuentra versionada mediante siete
+migraciones Alembic. El esquema incluye las entidades principales del dominio y
+tablas adicionales para fuentes, corridas, staging e identidad:
+
+\begin{itemize}
+    \item provincias, ciudades, supermercados y sucursales;
+    \item categorías, marcas, productos y productos por fuente;
+    \item precios históricos;
+    \item fuentes y corridas de scraping;
+    \item productos extraídos en staging;
+    \item revisiones auditables de identidad canónica.
+\end{itemize}
+
+SQLAlchemy abstrae la persistencia y la aplicación incluye controladores para
+SQLite y PostgreSQL. PostgreSQL constituye el objetivo para producción debido a
+su mejor comportamiento ante concurrencia, volumen y múltiples conexiones. Sin
+embargo, la integración completa presentada y las pruebas automatizadas fueron
+ejecutadas sobre SQLite; por ello, PostgreSQL debe considerarse compatible y
+planificado, pero pendiente de una validación final equivalente.
+
+\subsection{Implementación del Modelo Multicriterio}
+
+El modelo de decisión utiliza el método de suma ponderada
+(\textit{Weighted Sum Model}). Cada sucursal con cobertura completa de la
+canasta se representa como una alternativa y se evalúa mediante costo total,
+distancia y ahorro potencial.
+
+La distancia se calcula con la fórmula de Haversine a partir de las coordenadas
+de referencia y de la sucursal. El costo total considera la cantidad solicitada
+de cada producto. El ahorro se obtiene como la diferencia entre el costo de la
+alternativa más cara y el costo de cada sucursal.
+
+Para una alternativa $i$, el ahorro potencial se define como:
+
+\begin{equation}
+Ahorro_i = Costo_{\max} - Costo_i
+\label{eq:ahorro_potencial_alineado}
+\end{equation}
+
+Los criterios se normalizan antes de aplicar las ponderaciones. Para criterios
+de costo, como precio y distancia, se utiliza:
+
+\begin{equation}
+N_{costo}(x_i) =
+\frac{x_{\max} - x_i}{x_{\max} - x_{\min}}
+\label{eq:normalizacion_costo_alineada}
+\end{equation}
+
+Para criterios de beneficio, como el ahorro, se utiliza:
+
+\begin{equation}
+N_{beneficio}(x_i) =
+\frac{x_i - x_{\min}}{x_{\max} - x_{\min}}
+\label{eq:normalizacion_beneficio_alineada}
+\end{equation}
+
+Cuando todos los valores de un criterio son iguales, el sistema asigna un valor
+normalizado de uno a todas las alternativas para evitar una división por cero y
+no introducir una diferencia inexistente.
+
+El puntaje global se calcula mediante:
+
+\begin{equation}
+P_i = w_p N_{precio_i} + w_d N_{distancia_i} + w_a N_{ahorro_i}
+\label{eq:puntaje_final_alineado}
+\end{equation}
+
+donde $w_p + w_d + w_a = 1$.
+
+Los pesos iniciales son 0,6 para precio, 0,3 para distancia y 0,1 para ahorro,
+aunque el usuario puede modificarlos desde la interfaz siempre que sean no
+negativos y sumen uno. Las sucursales sin cobertura completa no reciben un
+puntaje artificial: se excluyen del ranking principal y se muestran por separado
+con los productos y motivos faltantes.
+
+\subsection{Implementación del Frontend}
+
+El frontend fue implementado con Vue.js 3 y TypeScript. La aplicación consume
+la API REST en modo \textit{live} y conserva un modo de datos simulados para
+desarrollo aislado.
+
+La vista de comparación permite:
+
+\begin{itemize}
+    \item seleccionar una ciudad de referencia;
+    \item buscar productos existentes en el catálogo;
+    \item seleccionar las fuentes activas;
+    \item ejecutar explícitamente una actualización en vivo para el texto
+    buscado;
+    \item agregar productos y cantidades a una canasta temporal;
+    \item consultar precios vigentes y su antigüedad;
+    \item configurar las ponderaciones del modelo;
+    \item visualizar alternativas completas, puntajes, costos, distancias y
+    ahorro;
+    \item consultar sucursales excluidas y el motivo de la falta de cobertura.
+\end{itemize}
+
+La búsqueda común consulta primero el catálogo persistido. La extracción en
+tiempo real no se dispara automáticamente ante cada pulsación: el usuario debe
+utilizar la acción \textit{Actualizar precios}. Esta decisión evita solicitudes
+innecesarias a sitios externos y permite seleccionar las fuentes involucradas.
+
+La interfaz es adaptable a resoluciones de escritorio y dispositivos móviles.
+Actualmente no incorpora un mapa ni solicita la geolocalización del navegador;
+las distancias mostradas utilizan las coordenadas de la ciudad seleccionada como
+origen. En consecuencia, la representación geográfica mediante mapas permanece
+como una ampliación pendiente.
+
+\subsection{Integración y Alcance Actual del Sistema}
+
+El flujo integrado implementado comprende la configuración de fuentes, la
+extracción concurrente, el staging, el ETL, la identidad canónica, el historial
+de precios, la consulta desde la API, el cálculo del ranking y su visualización
+en el frontend.
+
+La solución debe caracterizarse como una demostración funcional avanzada para
+una ciudad y un conjunto piloto de fuentes, y no como un servicio productivo de
+cobertura nacional. En particular, permanecen pendientes:
+
+\begin{itemize}
+    \item validar o geocodificar todas las coordenadas de sucursales piloto;
+    \item incorporar mapas y ubicación real del usuario;
+    \item implementar la ejecución periódica mediante un scheduler operativo;
+    \item validar migraciones, ETL y carga concurrente sobre PostgreSQL;
+    \item ejecutar pruebas de carga, disponibilidad y despliegue;
+    \item ampliar la evaluación experimental de calidad y rendimiento.
+\end{itemize}
+
+La actualización actual puede iniciarse desde la interfaz, la API o la línea de
+comandos. Existe la estructura destinada al scheduler, pero el trabajo periódico
+todavía no fue implementado. Por lo tanto, el sistema permite actualización bajo
+demanda, no actualización automática programada.
+
+Con este alcance, la implementación demuestra el recorrido técnico central de la
+tesis y permite evaluar el modelo DSS con datos reales acotados, manteniendo
+explícitas las limitaciones que deben resolverse antes de una puesta en producción.

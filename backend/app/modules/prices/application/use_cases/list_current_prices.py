@@ -1,12 +1,12 @@
 """Caso de uso para consultar precios actuales."""
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from app.modules.prices.application.commands import CurrentPriceQuery
-from app.modules.prices.application.dto import PriceDTO
+from app.modules.prices.application.dto import CurrentPriceSelectionDTO, PriceDTO
+from app.modules.prices.domain.services import PriceQualityPolicy
 from app.shared.application import UnitOfWorkPort
-
-from .current_price_selection import select_current_prices
 
 
 class ListCurrentPricesUseCase:
@@ -23,6 +23,14 @@ class ListCurrentPricesUseCase:
 
     async def execute(self, query: CurrentPriceQuery) -> list[PriceDTO]:
         """Obtiene precios actuales según producto, fuente y/o ubicación."""
+        return (await self.execute_with_quality(query)).prices
+
+    async def execute_with_quality(
+        self,
+        query: CurrentPriceQuery,
+    ) -> CurrentPriceSelectionDTO:
+        """Obtiene precios actuales y métricas de exclusión por calidad."""
+        evaluated_at = query.as_of or datetime.now(timezone.utc)
         async with self._uow as uow:
             branch_ids = await self._resolve_branch_ids(uow, query)
 
@@ -47,8 +55,28 @@ class ListCurrentPricesUseCase:
                 for branch in await uow.branches.list_active():
                     prices.extend(await uow.prices.find_current_by_branch(branch.id))
 
-            current_prices = select_current_prices(prices)[: query.limit]
-            return [PriceDTO.from_entity(price) for price in current_prices]
+            selection = PriceQualityPolicy(max_age_days=query.max_age_days).evaluate(
+                prices,
+                as_of=evaluated_at,
+            )
+            assessments = selection.assessment_by_id()
+            current_prices = selection.eligible[: query.limit]
+            return CurrentPriceSelectionDTO(
+                prices=[
+                    PriceDTO.from_entity(
+                        price,
+                        quality_status=assessments[price.id].status,
+                        quality_reason=assessments[price.id].reason,
+                        age_days=assessments[price.id].age_days,
+                    )
+                    for price in current_prices
+                ],
+                evaluated_at=evaluated_at,
+                max_age_days=query.max_age_days,
+                eligible_count=len(selection.eligible),
+                stale_excluded_count=len(selection.stale),
+                suspect_excluded_count=len(selection.suspect),
+            )
 
     @staticmethod
     async def _resolve_branch_ids(

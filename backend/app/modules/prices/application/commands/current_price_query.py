@@ -1,6 +1,7 @@
 """Query object para consultas flexibles de precios actuales."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 
@@ -19,6 +20,8 @@ class CurrentPriceQuery:
     city_id: UUID | None = None
     supermarket_id: UUID | None = None
     limit: int = 100
+    as_of: datetime | None = None
+    max_age_days: int | None = None
 
     def __post_init__(self) -> None:
         """Valida que la consulta tenga al menos un filtro coherente."""
@@ -33,3 +36,6 @@ class CurrentPriceQuery:
 
         if self.limit > 500:
             raise ValueError("Current price query limit must be less than or equal to 500.")
+
+        if self.max_age_days is not None and self.max_age_days <= 0:
+            raise ValueError("Maximum price age must be greater than zero.")

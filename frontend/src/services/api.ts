@@ -7,8 +7,11 @@ import type {
   Paginated,
   PriceFilters,
   Product,
+  LiveRefreshRequest,
+  LiveRefreshResponse,
   RankingRequest,
   RankingResponse,
+  ScrapingSource,
   Supermarket,
   Branch,
 } from '@/types'
@@ -70,6 +73,8 @@ interface BackendBranch {
   address: string
   latitude: string
   longitude: string
+  coordinates_verified: boolean
+  coordinate_source: string | null
 }
 
 interface BackendPrice {
@@ -90,6 +95,34 @@ interface BackendPrice {
   observed_at: string
   available: boolean
   promotion: boolean
+  quality_status: 'fresh' | 'stale' | 'suspect'
+  quality_reason: string | null
+  age_days: number
+}
+
+interface BackendScrapingSource {
+  id: string
+  name: string
+  scraper_key: string
+  branch_id: string | null
+  active: boolean
+}
+
+interface BackendLiveRefreshResponse {
+  results: Array<{
+    source_id: string
+    source_name: string
+    duration_ms: number
+    error_message: string | null
+    run: {
+      status: string
+      items_scraped: number
+    }
+    load: {
+      loaded: number
+      rejected: number
+    } | null
+  }>
 }
 
 interface BackendRankingBranch {
@@ -106,6 +139,13 @@ interface BackendRankingBranch {
 interface BackendRankingResponse {
   weights: { price: string; distance: string; saving: string }
   observed_at: string | null
+  quality: {
+    evaluated_at: string
+    max_price_age_days: number
+    eligible_price_count: number
+    stale_excluded_count: number
+    suspect_excluded_count: number
+  }
   ranking: Array<{
     position: number
     branch: BackendRankingBranch
@@ -117,7 +157,11 @@ interface BackendRankingResponse {
   }>
   incomplete_branches: Array<{
     branch: BackendRankingBranch
-    missing_products: Array<{ id: string; normalized_name: string }>
+    missing_products: Array<{
+      id: string
+      normalized_name: string
+      reason: 'missing' | 'stale' | 'suspect'
+    }>
   }>
 }
 
@@ -199,6 +243,8 @@ const mapBranch = (
     ciudad: branch.city_name ?? city?.nombre ?? branch.city_id,
     latitud: Number(branch.latitude),
     longitud: Number(branch.longitude),
+    coordenadas_verificadas: branch.coordinates_verified,
+    fuente_coordenadas: branch.coordinate_source,
   }
 }
 
@@ -212,6 +258,8 @@ const mapRankingBranch = (branch: BackendRankingBranch, cities: City[] = []): Br
     ciudad: city?.nombre ?? branch.city_id,
     latitud: Number(branch.latitude),
     longitud: Number(branch.longitude),
+    coordenadas_verificadas: true,
+    fuente_coordenadas: null,
   }
 }
 
@@ -274,6 +322,7 @@ const fetchCurrentPrices = async (filters: PriceFilters = {}) => {
       const branch = branchesById.get(price.branch_id)
       return {
         id: price.id,
+        productId: price.product_id ?? filters.productId ?? null,
         producto: price.product_name ?? product?.nombre ?? price.product_source_id,
         producto_fuente: price.product_source_name ?? price.product_source_id,
         sucursal: price.branch_name ?? branch?.nombre ?? price.branch_id,
@@ -285,9 +334,47 @@ const fetchCurrentPrices = async (filters: PriceFilters = {}) => {
         fecha_relevamiento: price.observed_at,
         disponible: price.available,
         promocion: price.promotion,
+        calidad: price.quality_status,
+        motivo_calidad: price.quality_reason,
+        antiguedad_dias: price.age_days,
       }
     }),
   })
+}
+
+const fetchScrapingSources = async (): Promise<{ items: ScrapingSource[] }> => {
+  const payload = await request<{ items: BackendScrapingSource[] }>('/api/v1/ingestion/sources')
+  return {
+    items: payload.items.map((source) => ({
+      id: source.id,
+      nombre: source.name,
+      scraperKey: source.scraper_key,
+      branchId: source.branch_id,
+      active: source.active,
+    })),
+  }
+}
+
+const refreshPrices = async (refreshRequest: LiveRefreshRequest): Promise<LiveRefreshResponse> => {
+  const payload = await request<BackendLiveRefreshResponse>(
+    '/api/v1/ingestion/sources/refresh-concurrently',
+    {
+      method: 'POST',
+      body: JSON.stringify(refreshRequest),
+    },
+  )
+  return {
+    results: payload.results.map((result) => ({
+      sourceId: result.source_id,
+      sourceName: result.source_name,
+      status: result.run.status,
+      durationMs: result.duration_ms,
+      scraped: result.run.items_scraped,
+      loaded: result.load?.loaded ?? 0,
+      rejected: result.load?.rejected ?? 0,
+      errorMessage: result.error_message,
+    })),
+  }
 }
 
 const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResponse> => {
@@ -299,10 +386,16 @@ const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResp
     fetchCities(),
   ])
   const city = cityPayload.items.find((item) => item.id === rankingRequest.city_id)
+  const usesUserLocation =
+    rankingRequest.origin_latitude !== undefined &&
+    rankingRequest.origin_longitude !== undefined
   return {
     origen: {
-      id: rankingRequest.city_id,
-      nombre: city?.nombre ?? rankingRequest.city_id,
+      id: usesUserLocation ? null : rankingRequest.city_id,
+      nombre: usesUserLocation ? 'Tu ubicación' : (city?.nombre ?? rankingRequest.city_id),
+      latitud: usesUserLocation ? rankingRequest.origin_latitude! : (city?.latitud ?? 0),
+      longitud: usesUserLocation ? rankingRequest.origin_longitude! : (city?.longitud ?? 0),
+      fuente: usesUserLocation ? 'user' : 'city',
     },
     pesos: {
       precio: payload.weights.price,
@@ -310,6 +403,13 @@ const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResp
       ahorro: payload.weights.saving,
     },
     fecha_relevamiento: payload.observed_at,
+    calidad: {
+      fecha_evaluacion: payload.quality.evaluated_at,
+      antiguedad_maxima_dias: payload.quality.max_price_age_days,
+      precios_aptos: payload.quality.eligible_price_count,
+      precios_vencidos: payload.quality.stale_excluded_count,
+      precios_sospechosos: payload.quality.suspect_excluded_count,
+    },
     ranking: payload.ranking.map((item) => ({
       posicion: item.position,
       sucursal: mapRankingBranch(item.branch, cityPayload.items),
@@ -323,6 +423,7 @@ const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResp
       productos_faltantes: item.missing_products.map((product) => ({
         id: product.id,
         nombre: product.normalized_name,
+        motivo: product.reason,
       })),
     })),
   }
@@ -336,6 +437,8 @@ const liveApi: DataClient = {
   supermarkets: fetchSupermarkets,
   branches: fetchBranches,
   currentPrices: fetchCurrentPrices,
+  scrapingSources: fetchScrapingSources,
+  refreshPrices,
   ranking: fetchRanking,
 }
 

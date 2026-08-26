@@ -49,10 +49,10 @@ const supermarkets: Supermarket[] = [
 ]
 
 const branches: Branch[] = [
-  { id: ids.laCentro, nombre: 'Centro', direccion: 'San Martín 500', supermercado: 'La Anónima', ciudad: 'Comodoro Rivadavia', latitud: -45.8645, longitud: -67.482 },
-  { id: ids.carrefour, nombre: 'Comodoro', direccion: 'Av. Hipólito Yrigoyen 2600', supermercado: 'Carrefour', ciudad: 'Comodoro Rivadavia', latitud: -45.875, longitud: -67.51 },
-  { id: ids.changomas, nombre: 'Comodoro', direccion: 'Av. Polonia 1200', supermercado: 'Chango Más', ciudad: 'Comodoro Rivadavia', latitud: -45.846, longitud: -67.5 },
-  { id: ids.laRada, nombre: 'Rada Tilly', direccion: 'Av. Moyano 900', supermercado: 'La Anónima', ciudad: 'Rada Tilly', latitud: -45.925, longitud: -67.555 },
+  { id: ids.laCentro, nombre: 'Sucursal 024 Alem', direccion: 'Leandro Alem 962', supermercado: 'La Anónima', ciudad: 'Comodoro Rivadavia', latitud: -45.860429, longitud: -67.498914, coordenadas_verificadas: true, fuente_coordenadas: 'La Anónima y OpenStreetMap' },
+  { id: ids.carrefour, nombre: 'Comodoro Centro', direccion: 'Pellegrini 851', supermercado: 'Carrefour', ciudad: 'Comodoro Rivadavia', latitud: -45.861941, longitud: -67.480174, coordenadas_verificadas: true, fuente_coordenadas: 'Carrefour y OpenStreetMap' },
+  { id: ids.changomas, nombre: 'Comodoro', direccion: 'Enrique Girolamo 3100', supermercado: 'Chango Más', ciudad: 'Comodoro Rivadavia', latitud: -45.883411, longitud: -67.524666, coordenadas_verificadas: true, fuente_coordenadas: 'Más Online y verificación cartográfica' },
+  { id: ids.laRada, nombre: 'Rada Tilly', direccion: 'Francisco Luque 1200', supermercado: 'La Anónima', ciudad: 'Rada Tilly', latitud: -45.929773, longitud: -67.572098, coordenadas_verificadas: true, fuente_coordenadas: 'La Anónima y OpenStreetMap' },
 ]
 
 const prices: Record<string, number[]> = {
@@ -76,6 +76,7 @@ const currentPriceRows = (): CurrentPrice[] =>
   branches.flatMap((branch) =>
     mockProducts.map((product, index) => ({
       id: `${branch.id}-${index}`,
+      productId: product.id,
       producto: product.nombre,
       producto_fuente: product.nombre,
       sucursal: branch.nombre,
@@ -87,6 +88,9 @@ const currentPriceRows = (): CurrentPrice[] =>
       fecha_relevamiento: observedAt,
       disponible: true,
       promocion: false,
+      calidad: 'fresh' as const,
+      motivo_calidad: null,
+      antiguedad_dias: 0,
     })),
   )
 
@@ -138,13 +142,20 @@ export const mockApi: DataClient = {
       ),
     )
   },
+  async scrapingSources() {
+    return { items: [] }
+  },
+  async refreshPrices() {
+    return { results: [] }
+  },
   async ranking(request: RankingRequest): Promise<RankingResponse> {
     const city = cities.find((candidate) => candidate.id === request.city_id) ?? cities[0]
     const selected = request.items.map((item) => ({
       product: mockProducts.find((product) => product.id === item.product_id),
       quantity: Number(item.quantity),
     }))
-    const complete = branches.map((branch) => {
+    const requestedBranchIds = request.branch_ids ? new Set(request.branch_ids) : null
+    const complete = branches.filter((branch) => !requestedBranchIds || requestedBranchIds.has(branch.id)).map((branch) => {
       const total = selected.reduce((sum, item) => {
         const index = mockProducts.findIndex((product) => product.id === item.product?.id)
         return sum + prices[branch.id][index] * item.quantity
@@ -174,11 +185,24 @@ export const mockApi: DataClient = {
         puntaje: score.toFixed(4),
       }))
     return {
-      origen: { id: city.id, nombre: city.nombre },
+      origen: {
+        id: request.origin_latitude === undefined ? city.id : null,
+        nombre: request.origin_latitude === undefined ? city.nombre : 'Tu ubicación',
+        latitud: request.origin_latitude ?? city.latitud ?? 0,
+        longitud: request.origin_longitude ?? city.longitud ?? 0,
+        fuente: request.origin_latitude === undefined ? 'city' : 'user',
+      },
       pesos: { precio: String(request.weights.price), distancia: String(request.weights.distance), ahorro: String(request.weights.saving) },
       fecha_relevamiento: observedAt,
       ranking,
       incomplete: [],
+      calidad: {
+        fecha_evaluacion: observedAt,
+        antiguedad_maxima_dias: 14,
+        precios_aptos: selected.length * branches.length,
+        precios_vencidos: 0,
+        precios_sospechosos: 0,
+      },
     }
   },
 }

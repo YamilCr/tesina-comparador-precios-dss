@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     debug: bool = True
     database_url: str = DEFAULT_DATABASE_URL
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    ingestion_scheduler_enabled: bool = True
+    ingestion_scheduler_poll_seconds: int = Field(default=30, ge=1, le=3600)
+    ingestion_scheduler_batch_size: int = Field(default=10, ge=1, le=100)
+    ingestion_scheduler_max_concurrency: int = Field(default=3, ge=1, le=10)
+    ingestion_scheduler_lease_seconds: int = Field(default=900, ge=60, le=7200)
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

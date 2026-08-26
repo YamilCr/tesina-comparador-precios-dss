@@ -9,6 +9,7 @@ class CreateScrapingSourceCommand:
     supermarket_id: UUID
     name: str
     base_url: str
+    scraper_key: str = "jumbo"
     branch_id: UUID | None = None
     active: bool = True
 
@@ -18,6 +19,7 @@ class UpdateScrapingSourceCommand:
     source_id: UUID
     name: str | None = None
     base_url: str | None = None
+    scraper_key: str | None = None
     branch_id: UUID | None = None
     active: bool | None = None
 
@@ -25,6 +27,7 @@ class UpdateScrapingSourceCommand:
         if (
             self.name is None
             and self.base_url is None
+            and self.scraper_key is None
             and self.branch_id is None
             and self.active is None
         ):

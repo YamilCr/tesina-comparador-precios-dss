@@ -23,6 +23,7 @@ class CreateScrapingSourceUseCase:
             supermarket_id=command.supermarket_id,
             name=command.name,
             base_url=command.base_url,
+            scraper_key=command.scraper_key,
             branch_id=command.branch_id,
             active=command.active,
         )
@@ -63,6 +64,7 @@ class UpdateScrapingSourceUseCase:
             source.update_configuration(
                 name=command.name,
                 base_url=command.base_url,
+                scraper_key=command.scraper_key,
                 branch_id=command.branch_id,
                 active=command.active,
             )

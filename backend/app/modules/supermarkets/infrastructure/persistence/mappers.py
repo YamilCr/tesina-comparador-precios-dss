@@ -49,6 +49,9 @@ def branch_model_to_entity(model: BranchModel) -> Branch:
         latitude=model.latitud,
         longitude=model.longitud,
         active=model.activo,
+        coordinates_verified=model.coordenadas_verificadas,
+        coordinate_source=model.fuente_coordenadas,
+        coordinates_verified_at=model.coordenadas_verificadas_en,
     )
 
 
@@ -100,4 +103,7 @@ def branch_entity_to_model(entity: Branch) -> BranchModel:
         latitud=entity.latitude,
         longitud=entity.longitude,
         activo=entity.active,
+        coordenadas_verificadas=entity.coordinates_verified,
+        fuente_coordenadas=entity.coordinate_source,
+        coordenadas_verificadas_en=entity.coordinates_verified_at,
     )

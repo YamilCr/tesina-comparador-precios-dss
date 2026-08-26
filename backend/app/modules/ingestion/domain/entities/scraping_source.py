@@ -5,6 +5,9 @@ from datetime import datetime
 from uuid import UUID
 
 
+SCRAPER_KEYS = frozenset({"carrefour", "coope", "jumbo", "la_anonima", "playwright"})
+
+
 @dataclass
 class ScrapingSource:
     """Describe una fuente de extraccion asociada a un supermercado."""
@@ -13,6 +16,7 @@ class ScrapingSource:
     supermarket_id: UUID
     name: str
     base_url: str
+    scraper_key: str = "jumbo"
     branch_id: UUID | None = None
     active: bool = True
     created_at: datetime | None = None
@@ -23,6 +27,8 @@ class ScrapingSource:
             raise ValueError("Scraping source name cannot be empty.")
         if not self.base_url or not self.base_url.strip():
             raise ValueError("Scraping source base URL cannot be empty.")
+        if self.scraper_key not in SCRAPER_KEYS:
+            raise ValueError("Unsupported scraping source scraper key.")
         self.name = self.name.strip()
         self.base_url = self.base_url.strip()
 
@@ -39,6 +45,7 @@ class ScrapingSource:
         *,
         name: str | None = None,
         base_url: str | None = None,
+        scraper_key: str | None = None,
         branch_id: UUID | None = None,
         active: bool | None = None,
     ) -> None:
@@ -51,6 +58,10 @@ class ScrapingSource:
             if not base_url.strip():
                 raise ValueError("Scraping source base URL cannot be empty.")
             self.base_url = base_url.strip()
+        if scraper_key is not None:
+            if scraper_key not in SCRAPER_KEYS:
+                raise ValueError("Unsupported scraping source scraper key.")
+            self.scraper_key = scraper_key
         if branch_id is not None:
             self.branch_id = branch_id
         if active is not None:

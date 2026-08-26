@@ -30,6 +30,14 @@ class ProductSourceRepositoryPort(ABC):
         """Busca una publicación por supermercado y código externo."""
 
     @abstractmethod
+    async def find_by_gtin(self, gtin: str) -> list[ProductSource]:
+        """Busca publicaciones de cualquier supermercado por GTIN validado."""
+
+    @abstractmethod
+    async def list_all(self) -> list[ProductSource]:
+        """Lista todas las publicaciones para tareas administrativas de reconciliación."""
+
+    @abstractmethod
     async def save(self, product_source: ProductSource) -> ProductSource:
         """Guarda una publicación y devuelve su representación de dominio."""
 

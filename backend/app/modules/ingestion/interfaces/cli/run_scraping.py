@@ -11,14 +11,13 @@ from sqlalchemy.exc import OperationalError
 from app.modules.ingestion.application.use_cases import ExecuteScrapingRunUseCase
 from app.modules.ingestion.domain.entities import ScrapingSource
 from app.modules.ingestion.domain.ports import ScraperPort
-from app.modules.ingestion.infrastructure.scrapers import CoopeScraper, JumboScraper
+from app.modules.ingestion.infrastructure.scrapers import create_scraper_for_source
 from app.shared.infrastructure import SQLAlchemyUnitOfWork, async_session_factory
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a limited supermarket scraping pilot.")
     parser.add_argument("--source-id", required=True, type=UUID)
-    parser.add_argument("--scraper", choices=("jumbo", "coope"), default="jumbo")
     parser.add_argument("--query", action="append", required=True, help="Product phrase; repeat to add more.")
     parser.add_argument("--city", default="Comodoro Rivadavia")
     parser.add_argument("--limit", type=int, default=10)
@@ -30,11 +29,10 @@ async def main() -> None:
     unit_of_work = SQLAlchemyUnitOfWork(async_session_factory)
 
     def create_scraper(source: ScrapingSource) -> ScraperPort:
-        scraper_class = JumboScraper if args.scraper == "jumbo" else CoopeScraper
-        return scraper_class(
-            args.query,
+        return create_scraper_for_source(
+            source,
+            queries=args.query,
             city=args.city,
-            base_url=source.base_url,
             result_limit=args.limit,
         )
 

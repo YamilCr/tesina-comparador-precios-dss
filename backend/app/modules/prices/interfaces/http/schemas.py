@@ -27,3 +27,6 @@ class PriceResponse(BaseModel):
     observed_at: datetime
     available: bool
     promotion: bool
+    quality_status: str
+    quality_reason: str | None = None
+    age_days: int

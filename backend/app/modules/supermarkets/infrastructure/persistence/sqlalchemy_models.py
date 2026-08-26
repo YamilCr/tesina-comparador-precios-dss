@@ -136,6 +136,7 @@ class BranchModel(Base):
         Index("ix_sucursal_supermercado_id", "supermercado_id"),
         Index("ix_sucursal_ciudad_id", "ciudad_id"),
         Index("ix_sucursal_activo", "activo"),
+        Index("ix_sucursal_coordenadas_verificadas", "coordenadas_verificadas"),
         Index("ix_sucursal_latitud_longitud", "latitud", "longitud"),
     )
 
@@ -154,6 +155,17 @@ class BranchModel(Base):
         nullable=False,
         default=True,
         server_default=text("true"),
+    )
+    coordenadas_verificadas: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    fuente_coordenadas: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    coordenadas_verificadas_en: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     supermarket: Mapped[SupermarketModel] = relationship(back_populates="branches")

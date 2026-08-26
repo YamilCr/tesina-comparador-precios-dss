@@ -1,6 +1,7 @@
 """Query object para comparar precios actuales por productos normalizados."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 
@@ -16,6 +17,8 @@ class CompareProductPricesQuery:
     city_id: UUID | None = None
     supermarket_id: UUID | None = None
     limit: int = 100
+    as_of: datetime | None = None
+    max_age_days: int | None = None
 
     def __post_init__(self) -> None:
         """Valida que se haya solicitado al menos un producto y un límite válido."""
@@ -27,3 +30,6 @@ class CompareProductPricesQuery:
 
         if self.limit > 500:
             raise ValueError("Compare product prices query limit must be less than or equal to 500.")
+
+        if self.max_age_days is not None and self.max_age_days <= 0:
+            raise ValueError("Maximum price age must be greater than zero.")

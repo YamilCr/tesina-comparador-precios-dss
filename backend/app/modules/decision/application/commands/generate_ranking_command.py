@@ -1,6 +1,7 @@
 """Command de aplicación para solicitar un ranking DSS multicriterio."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -17,6 +18,8 @@ class GenerateRankingCommand:
     origin_longitude: Decimal
     branch_ids: list[UUID] | None = None
     weights: CriteriaWeights = field(default_factory=CriteriaWeights)
+    as_of: datetime | None = None
+    max_price_age_days: int = 14
 
     def __post_init__(self) -> None:
         """Valida canasta, coordenadas y sucursales opcionales."""
@@ -28,3 +31,5 @@ class GenerateRankingCommand:
             raise ValueError("Origin longitude must be between -180 and 180.")
         if self.branch_ids is not None and len(self.branch_ids) != len(set(self.branch_ids)):
             raise ValueError("Branch ids cannot contain duplicates.")
+        if self.max_price_age_days <= 0:
+            raise ValueError("Maximum price age must be greater than zero.")

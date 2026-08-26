@@ -1,5 +1,6 @@
 """Rutas HTTP de precios conectadas con casos de uso de aplicación."""
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -85,6 +86,9 @@ async def _price_payloads(uow: UnitOfWorkPort, prices: list[PriceDTO]) -> list[d
                     observed_at=price.observed_at,
                     available=price.available,
                     promotion=price.promotion,
+                    quality_status=price.quality_status,
+                    quality_reason=price.quality_reason,
+                    age_days=price.age_days,
                 ).model_dump(mode="json")
             )
     return payloads
@@ -99,11 +103,13 @@ async def list_current_prices(
     city_id: UUID | None = None,
     supermarket_id: UUID | None = None,
     limit: int = Query(default=100, ge=1, le=500),
+    as_of: datetime | None = None,
+    max_age_days: int = Query(default=14, ge=1, le=90),
 ) -> dict:
     """Consulta precios actuales usando filtros definidos en application."""
     product_ids = [product_id] if product_id is not None else None
     try:
-        prices = await ListCurrentPricesUseCase(uow).execute(
+        selection = await ListCurrentPricesUseCase(uow).execute_with_quality(
             CurrentPriceQuery(
                 product_ids=product_ids,
                 product_source_id=product_source_id,
@@ -111,6 +117,8 @@ async def list_current_prices(
                 city_id=city_id,
                 supermarket_id=supermarket_id,
                 limit=limit,
+                as_of=as_of,
+                max_age_days=max_age_days,
             )
         )
     except ValueError as error:
@@ -119,7 +127,15 @@ async def list_current_prices(
             detail=str(error),
         ) from error
 
-    return collection_response(await _price_payloads(uow, prices))
+    response = collection_response(await _price_payloads(uow, selection.prices))
+    response["quality"] = {
+        "evaluated_at": selection.evaluated_at.isoformat(),
+        "max_age_days": selection.max_age_days,
+        "eligible_count": selection.eligible_count,
+        "stale_excluded_count": selection.stale_excluded_count,
+        "suspect_excluded_count": selection.suspect_excluded_count,
+    }
+    return response
 
 
 @router.get("/history")
@@ -145,6 +161,8 @@ async def compare_product_prices(
     city_id: UUID | None = None,
     supermarket_id: UUID | None = None,
     limit: int = Query(default=100, ge=1, le=500),
+    as_of: datetime | None = None,
+    max_age_days: int = Query(default=14, ge=1, le=90),
 ) -> dict:
     """Compara precios actuales para uno o más productos normalizados."""
     try:
@@ -155,6 +173,8 @@ async def compare_product_prices(
                 city_id=city_id,
                 supermarket_id=supermarket_id,
                 limit=limit,
+                as_of=as_of,
+                max_age_days=max_age_days,
             )
         )
     except ValueError as error:

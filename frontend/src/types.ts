@@ -45,10 +45,13 @@ export interface Branch {
   ciudad: string | null
   latitud: number
   longitud: number
+  coordenadas_verificadas: boolean
+  fuente_coordenadas: string | null
 }
 
 export interface CurrentPrice {
   id: string
+  productId: string | null
   producto: string
   producto_fuente: string
   sucursal: string
@@ -60,6 +63,9 @@ export interface CurrentPrice {
   fecha_relevamiento: string
   disponible: boolean
   promocion: boolean
+  calidad: 'fresh' | 'stale' | 'suspect'
+  motivo_calidad: string | null
+  antiguedad_dias: number
 }
 
 export interface BasketItem {
@@ -75,8 +81,19 @@ export interface RankingWeights {
 
 export interface RankingRequest {
   city_id: string
+  branch_ids?: string[]
+  origin_latitude?: number
+  origin_longitude?: number
   items: Array<{ product_id: string; quantity: string }>
   weights: RankingWeights
+}
+
+export interface RankingOrigin {
+  id: string | null
+  nombre: string
+  latitud: number
+  longitud: number
+  fuente: 'city' | 'user'
 }
 
 export interface RankedBranch {
@@ -90,15 +107,28 @@ export interface RankedBranch {
 
 export interface IncompleteBranch {
   sucursal: Branch
-  productos_faltantes: Array<{ id: string; nombre: string }>
+  productos_faltantes: Array<{
+    id: string
+    nombre: string
+    motivo: 'missing' | 'stale' | 'suspect'
+  }>
+}
+
+export interface RankingQuality {
+  fecha_evaluacion: string
+  antiguedad_maxima_dias: number
+  precios_aptos: number
+  precios_vencidos: number
+  precios_sospechosos: number
 }
 
 export interface RankingResponse {
-  origen: { id: string; nombre: string }
+  origen: RankingOrigin
   pesos: { precio: string; distancia: string; ahorro: string }
   fecha_relevamiento: string | null
   ranking: RankedBranch[]
   incomplete: IncompleteBranch[]
+  calidad: RankingQuality
 }
 
 export interface PriceFilters {
@@ -106,6 +136,38 @@ export interface PriceFilters {
   cityId?: string
   branchId?: string
   supermarketId?: string
+}
+
+export interface ScrapingSource {
+  id: string
+  nombre: string
+  scraperKey: string
+  branchId: string | null
+  active: boolean
+}
+
+export interface LiveRefreshRequest {
+  source_ids: string[]
+  queries: string[]
+  city: string
+  limit: number
+  max_concurrency: number
+  timeout_seconds: number
+}
+
+export interface LiveRefreshSourceResult {
+  sourceId: string
+  sourceName: string
+  status: string
+  durationMs: number
+  scraped: number
+  loaded: number
+  rejected: number
+  errorMessage: string | null
+}
+
+export interface LiveRefreshResponse {
+  results: LiveRefreshSourceResult[]
 }
 
 export interface DataClient {
@@ -116,5 +178,7 @@ export interface DataClient {
   supermarkets(): Promise<{ items: Supermarket[] }>
   branches(cityId?: string, supermarketId?: string): Promise<Paginated<Branch>>
   currentPrices(filters?: PriceFilters): Promise<Paginated<CurrentPrice>>
+  scrapingSources(): Promise<{ items: ScrapingSource[] }>
+  refreshPrices(request: LiveRefreshRequest): Promise<LiveRefreshResponse>
   ranking(request: RankingRequest): Promise<RankingResponse>
 }

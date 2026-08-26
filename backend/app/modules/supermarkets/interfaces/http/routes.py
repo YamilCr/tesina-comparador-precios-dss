@@ -127,6 +127,9 @@ async def list_branches(
                 address=branch.address,
                 latitude=branch.latitude,
                 longitude=branch.longitude,
+                coordinates_verified=branch.coordinates_verified,
+                coordinate_source=branch.coordinate_source,
+                coordinates_verified_at=branch.coordinates_verified_at,
             ).model_dump(mode="json")
             for branch in paginated_branches
     ]

@@ -5,6 +5,10 @@ from .scraping_run_commands import (
     FailScrapingRunCommand,
     StartScrapingRunCommand,
 )
+from .scraping_schedule_commands import (
+    CreateScrapingScheduleCommand,
+    UpdateScrapingScheduleCommand,
+)
 from .scraping_source_commands import (
     CreateScrapingSourceCommand,
     UpdateScrapingSourceCommand,
@@ -13,7 +17,9 @@ from .scraping_source_commands import (
 __all__ = [
     "CompleteScrapingRunCommand",
     "CreateScrapingSourceCommand",
+    "CreateScrapingScheduleCommand",
     "FailScrapingRunCommand",
     "StartScrapingRunCommand",
     "UpdateScrapingSourceCommand",
+    "UpdateScrapingScheduleCommand",
 ]

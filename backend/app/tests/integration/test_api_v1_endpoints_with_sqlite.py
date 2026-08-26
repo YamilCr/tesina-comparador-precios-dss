@@ -65,7 +65,10 @@ async def test_price_endpoints_use_real_sqlite_data(
     current_response: ASGIResponse = await asgi_request(
         "GET",
         "/api/v1/prices/current",
-        query={"product_id": str(seed_data.coca_product_id)},
+        query={
+            "product_id": str(seed_data.coca_product_id),
+            "as_of": seed_data.observed_at.isoformat(),
+        },
     )
     history_response: ASGIResponse = await asgi_request(
         "GET",
@@ -82,7 +85,8 @@ async def test_price_endpoints_use_real_sqlite_data(
             "product_ids": [
                 str(seed_data.coca_product_id),
                 str(seed_data.milk_product_id),
-            ]
+            ],
+            "as_of": seed_data.observed_at.isoformat(),
         },
     )
     compare_by_supermarket_response: ASGIResponse = await asgi_request(
@@ -94,6 +98,7 @@ async def test_price_endpoints_use_real_sqlite_data(
                 str(seed_data.milk_product_id),
             ],
             "supermarket_id": str(seed_data.la_anonima_id),
+            "as_of": seed_data.observed_at.isoformat(),
         },
     )
 
@@ -144,6 +149,7 @@ async def test_ranking_endpoint_uses_real_sqlite_seed(
                 {"product_id": str(seed_data.coca_product_id), "quantity": "1"},
                 {"product_id": str(seed_data.milk_product_id), "quantity": "1"},
             ],
+            "as_of": seed_data.observed_at.isoformat(),
         },
     )
 
@@ -152,5 +158,6 @@ async def test_ranking_endpoint_uses_real_sqlite_seed(
     assert payload["count"] == 2
     assert payload["incomplete_count"] == 0
     assert payload["incomplete_branches"] == []
+    assert payload["quality"]["eligible_price_count"] == 4
     assert [item["position"] for item in payload["ranking"]] == [1, 2]
     assert {item["total_cost"] for item in payload["ranking"]} == {"4050.00", "4000.00"}

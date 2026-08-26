@@ -1,15 +1,21 @@
 """Loads validated staged extraction records into the catalog and price history."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from app.modules.catalog.domain.entities import Product, ProductSource
 from app.modules.ingestion.application.dto import EtlLoadResultDTO
+from app.modules.ingestion.domain.entities import ScrapedProduct
 from app.modules.ingestion.infrastructure.etl import (
+    ProductIdentityCandidate,
+    ProductIdentityMatcher,
+    catalog_quantity_fields,
     clean_price,
+    normalize_gtin,
     normalize_product,
-    product_matching_key,
+    normalized_token_set,
     validate_scraped_product,
 )
 from app.modules.prices.domain.entities import Price
@@ -17,7 +23,7 @@ from app.shared.application import UnitOfWorkPort
 
 
 class LoadScrapingRunUseCase:
-    """Applies quality checks, matching and idempotent price-history loading."""
+    """Applies quality checks, canonical identity matching and idempotent history loading."""
 
     def __init__(self, unit_of_work: UnitOfWorkPort) -> None:
         self._unit_of_work = unit_of_work
@@ -53,7 +59,8 @@ class LoadScrapingRunUseCase:
             staged_products = [
                 product for product in all_staged if product.status in {"pending", "unmatched"}
             ]
-            product_key_index = await self._build_product_key_index(uow)
+            catalog = await self._build_catalog_identity_state(uow)
+            matcher = ProductIdentityMatcher()
             seen_external_codes: set[str] = set()
             result = _MutableEtlResult(run_id=run_id)
 
@@ -84,25 +91,50 @@ class LoadScrapingRunUseCase:
                     staged.mark_rejected(" ".join(issues), processed_at)
                     result.rejected += 1
                     continue
+                assert normalized is not None and amount is not None
 
                 product_source = await uow.product_sources.find_by_external_code(
                     source.supermarket_id,
                     staged.external_code or "",
                 )
                 if product_source is None:
-                    product = product_key_index.get(normalized.matching_key)
+                    gtin = _staged_gtin(staged)
+                    product, confidence, identity_error = await self._resolve_product(
+                        uow=uow,
+                        catalog=catalog,
+                        matcher=matcher,
+                        normalized=normalized,
+                        brand=staged.brand,
+                        gtin=gtin,
+                    )
+                    if identity_error is not None:
+                        staged.mark_unmatched(identity_error, processed_at)
+                        result.unmatched += 1
+                        continue
                     if product is None:
                         if not create_missing_products:
-                            staged.mark_unmatched("No exact normalized product match.", processed_at)
+                            staged.mark_unmatched(
+                                "No unambiguous canonical product match.",
+                                processed_at,
+                            )
                             result.unmatched += 1
                             continue
-                        product = Product(id=uuid4(), normalized_name=normalized.name)
-                        product = await uow.products.save(product)
-                        product_key_index[normalized.matching_key] = product
+                        unit_measure, net_content = catalog_quantity_fields(
+                            normalized.identity.quantity
+                        )
+                        brand_id, brand_name = catalog.find_brand(staged.brand)
+                        product = await uow.products.save(
+                            Product(
+                                id=uuid4(),
+                                normalized_name=normalized.name,
+                                brand_id=brand_id,
+                                unit_measure=unit_measure,
+                                net_content=net_content,
+                            )
+                        )
+                        catalog.add_product(product, brand_name=brand_name)
                         result.created_products += 1
                         confidence = Decimal("1.000")
-                    else:
-                        confidence = Decimal("0.950")
                     product_source = ProductSource(
                         id=uuid4(),
                         product_id=product.id,
@@ -112,11 +144,13 @@ class LoadScrapingRunUseCase:
                         product_url=staged.product_url,
                         original_unit=normalized.original_unit,
                         match_confidence=confidence,
+                        gtin=gtin,
                     )
                 else:
                     product_source.original_name = normalized.name
                     product_source.product_url = staged.product_url
                     product_source.original_unit = normalized.original_unit
+                    product_source.gtin = product_source.gtin or _staged_gtin(staged)
                     product_source.activate()
                 product_source = await uow.product_sources.save(product_source)
 
@@ -147,13 +181,78 @@ class LoadScrapingRunUseCase:
         return result.to_dto()
 
     @staticmethod
-    async def _build_product_key_index(uow: UnitOfWorkPort) -> dict[str, Product]:
+    async def _resolve_product(
+        *,
+        uow: UnitOfWorkPort,
+        catalog: "_CatalogIdentityState",
+        matcher: ProductIdentityMatcher,
+        normalized,
+        brand: str | None,
+        gtin: str | None,
+    ) -> tuple[Product | None, Decimal | None, str | None]:
+        if gtin is not None:
+            gtin_sources = await uow.product_sources.find_by_gtin(gtin)
+            product_ids = {source.product_id for source in gtin_sources}
+            if len(product_ids) > 1:
+                return None, None, "GTIN is associated with multiple canonical products."
+            if product_ids:
+                product_id = next(iter(product_ids))
+                product = catalog.products_by_id.get(product_id)
+                if product is None:
+                    product = await uow.products.get_by_id(product_id)
+                if product is not None:
+                    return product, Decimal("1.000"), None
+
+        match = matcher.match(
+            name=normalized.name,
+            presentation=normalized.original_unit,
+            brand=brand,
+            candidates=catalog.candidates,
+        )
+        if match is None:
+            return None, None, None
+        return match.product, match.confidence, None
+
+    @staticmethod
+    async def _build_catalog_identity_state(uow: UnitOfWorkPort) -> "_CatalogIdentityState":
         products = await uow.products.list_active(limit=1000)
-        return {
-            key: product
-            for product in products
-            if (key := product_matching_key(product.normalized_name))
-        }
+        brands = await uow.brands.list_active()
+        brand_names = {brand.id: brand.name for brand in brands}
+        return _CatalogIdentityState(
+            candidates=[
+                ProductIdentityCandidate(
+                    product=product,
+                    brand_name=brand_names.get(product.brand_id),
+                )
+                for product in products
+            ],
+            products_by_id={product.id: product for product in products},
+            brands_by_tokens={
+                normalized_token_set(brand.name): (brand.id, brand.name) for brand in brands
+            },
+        )
+
+
+@dataclass
+class _CatalogIdentityState:
+    candidates: list[ProductIdentityCandidate]
+    products_by_id: dict[UUID, Product]
+    brands_by_tokens: dict[frozenset[str], tuple[UUID, str]]
+
+    def find_brand(self, brand: str | None) -> tuple[UUID | None, str | None]:
+        match = self.brands_by_tokens.get(normalized_token_set(brand))
+        return match if match is not None else (None, None)
+
+    def add_product(self, product: Product, *, brand_name: str | None) -> None:
+        self.products_by_id[product.id] = product
+        self.candidates.append(ProductIdentityCandidate(product=product, brand_name=brand_name))
+
+
+def _staged_gtin(staged: ScrapedProduct) -> str | None:
+    identifier_type = staged.raw_payload.get("identifier_type")
+    if not isinstance(identifier_type, str):
+        return None
+    return normalize_gtin(staged.ean, identifier_type=identifier_type)
 
 
 class _MutableEtlResult:

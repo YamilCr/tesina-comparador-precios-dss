@@ -32,6 +32,7 @@ class MissingProductDTO:
 
     id: UUID
     normalized_name: str
+    reason: str = "missing"
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,17 @@ class RankingResultDTO:
 
 
 @dataclass(frozen=True)
+class RankingQualityDTO:
+    """Métricas de calidad aplicadas antes de calcular el ranking."""
+
+    evaluated_at: datetime
+    max_price_age_days: int
+    eligible_price_count: int
+    stale_excluded_count: int
+    suspect_excluded_count: int
+
+
+@dataclass(frozen=True)
 class RankingResponseDTO:
     """Respuesta completa del cálculo DSS en memoria."""
 
@@ -63,3 +75,4 @@ class RankingResponseDTO:
     incomplete_branches: list[IncompleteBranchDTO]
     observed_at: datetime | None
     weights: CriteriaWeights
+    quality: RankingQualityDTO

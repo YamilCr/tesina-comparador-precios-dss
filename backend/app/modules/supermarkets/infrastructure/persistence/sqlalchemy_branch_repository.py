@@ -61,6 +61,9 @@ class SQLAlchemyBranchRepository(BranchRepositoryPort):
             model.latitud = branch.latitude
             model.longitud = branch.longitude
             model.activo = branch.active
+            model.coordenadas_verificadas = branch.coordinates_verified
+            model.fuente_coordenadas = branch.coordinate_source
+            model.coordenadas_verificadas_en = branch.coordinates_verified_at
 
         await self._session.flush()
         return branch_model_to_entity(model)

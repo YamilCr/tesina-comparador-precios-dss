@@ -1,6 +1,7 @@
 """Entidad de dominio que representa una sucursal física."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -17,6 +18,9 @@ class Branch:
     latitude: Decimal
     longitude: Decimal
     active: bool = True
+    coordinates_verified: bool = True
+    coordinate_source: str | None = None
+    coordinates_verified_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Valida los datos mínimos y las coordenadas de la sucursal."""
@@ -30,6 +34,8 @@ class Branch:
             raise ValueError("Branch longitude must be between -180 and 180.")
         self.name = self.name.strip()
         self.address = self.address.strip()
+        if self.coordinate_source is not None:
+            self.coordinate_source = self.coordinate_source.strip() or None
 
     def activate(self) -> None:
         """Marca la sucursal como activa."""

@@ -17,6 +17,7 @@ class ProductSource:
     product_url: str | None = None
     original_unit: str | None = None
     match_confidence: Decimal | None = None
+    gtin: str | None = None
     active: bool = True
 
     def __post_init__(self) -> None:
@@ -26,6 +27,7 @@ class ProductSource:
         if self.match_confidence is not None and not Decimal("0") <= self.match_confidence <= Decimal("1"):
             raise ValueError("Product source match confidence must be between 0 and 1.")
         self.original_name = self.original_name.strip()
+        self.gtin = self.gtin.strip() if self.gtin else None
 
     def activate(self) -> None:
         """Marca la fuente de producto como activa."""

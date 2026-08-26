@@ -1,5 +1,6 @@
 """Schemas HTTP del módulo de supermercados y localización."""
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -38,3 +39,6 @@ class BranchResponse(BaseModel):
     address: str
     latitude: Decimal
     longitude: Decimal
+    coordinates_verified: bool
+    coordinate_source: str | None = None
+    coordinates_verified_at: datetime | None = None

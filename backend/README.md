@@ -30,7 +30,7 @@ Las dependencias apuntan hacia el dominio.
 | `basket` | Canasta temporal de usuario anonimo. |
 | `geo` | Coordenadas y calculo de distancia. |
 | `decision` | Modelo multicriterio DSS. |
-| `ingestion` | Fuentes, auditoria de scraping y futuro ETL. |
+| `ingestion` | Fuentes, scraping, auditoria, ETL e identidad canonica. |
 
 ## Alcance del MVP
 
@@ -41,13 +41,21 @@ Incluido:
 - Ranking DSS en memoria.
 - Seed inicial para datos de prueba.
 - Auditoria minima de ingestion con `scraping_source` y `scraping_run`.
+- Scrapers piloto para Carrefour, Jumbo, La Coope y La Anonima.
+- ETL auditable con staging, deduplicacion, normalizacion e historial idempotente.
+- Identidad canonica conservadora y revision asistida.
+- Actualizacion concurrente bajo demanda y benchmark reproducible.
+- Scheduler persistente con historial, leases y reintentos ante fallos.
+- Calidad operativa de precios previa al ranking.
+- Mapa y geolocalizacion opcional desde el navegador.
 
 Excluido por ahora:
 
 - Usuarios, autenticacion, roles y permisos.
 - Canastas guardadas.
 - Rankings persistidos.
-- Scraping y ETL real.
+- Despliegue y validacion integral sobre PostgreSQL.
+- Cobertura nacional y confirmacion de ubicacion para todos los catalogos publicos.
 
 ## Estado de etapas
 
@@ -59,9 +67,12 @@ Excluido por ahora:
 - Administracion de fuentes y corridas de ingestion: completo mediante API v1.
 - Puertos, repositorios SQLAlchemy, Unit of Work, seed y ranking DSS: completo para el core.
 - Endpoints minimos v1: completo.
-- Scrapers reales limitados para Jumbo y La Coope, con auditoria automatica: completo como piloto.
-- ETL de staging, calidad, deduplicacion, matching exacto y carga idempotente de historial: completo.
-- Validacion de ubicacion y sucursal por cada cadena: pendiente antes de publicar precios reales por ciudad.
+- Scrapers reales limitados para Carrefour, Jumbo, La Coope y La Anonima, con
+  auditoria automatica: completo como piloto.
+- ETL de staging, calidad, deduplicacion, identidad canonica y carga idempotente de historial: completo.
+- Validacion de ubicacion y sucursal: mecanismo de confirmacion implementado
+  para Carrefour; parcial para los catalogos publicos y las coordenadas piloto
+  restantes.
 
 ## Desarrollo local
 
@@ -118,6 +129,11 @@ Migraciones actuales:
 - `0002`: tablas `scraping_source` y `scraping_run`.
 - `0003`: staging `producto_extraido` para calidad, deduplicacion y trazabilidad ETL.
 - `0004`: sucursal destino opcional para cada fuente de scraping.
+- `0005`: clave de adaptador (`scraper_key`) administrable por fuente.
+- `0006`: GTIN validado e indexado por publicacion para identidad multicadena.
+- `0007`: cola auditable de revision asistida para conflictos de identidad.
+- `0008`: verificacion auditable de coordenadas de sucursales.
+- `0009`: planes del scheduler e historial de ejecuciones automaticas.
 
 ## Seed inicial
 
@@ -160,6 +176,27 @@ suma ponderada del dominio `decision`.
 No persiste rankings ni canastas. Las sucursales que no cubren todos los
 productos se devuelven como incompletas y quedan fuera del ranking principal.
 
+### Calidad operativa de precios
+
+Antes de exponer precios actuales o calcular un ranking se aplica una politica
+de calidad en memoria. El historial permanece sin cambios para conservar la
+auditoria completa.
+
+- Vigencia: por defecto se excluyen precios con mas de 14 dias.
+- Anomalia: se requiere un minimo de dos observaciones anteriores y se compara
+  el valor actual con su mediana historica.
+- Umbral conservador: se excluyen valores menores a `0.4x` o mayores a `2.5x`
+  de esa mediana.
+- Promociones: un precio marcado explicitamente como promocional no se descarta
+  por la regla de anomalia.
+- Cobertura: cada producto faltante informa `missing`, `stale` o `suspect`.
+
+`GET /api/v1/prices/current` acepta `max_age_days` (1 a 90) y `as_of`.
+`POST /api/v1/decisions/ranking` acepta `max_price_age_days` (1 a 90) y
+`as_of`. La fecha opcional permite reproducir experimentos; si se omite se usa
+el momento actual. Ambas respuestas incluyen un bloque `quality` con precios
+aptos y exclusiones por antiguedad o anomalia.
+
 ## Endpoints v1
 
 - `GET /health`
@@ -178,6 +215,12 @@ productos se devuelven como incompletas y quedan fuera del ranking principal.
 - `PATCH /api/v1/ingestion/sources/{source_id}`
 - `GET /api/v1/ingestion/runs`
 - `POST /api/v1/ingestion/sources/{source_id}/runs`
+- `POST /api/v1/ingestion/sources/{source_id}/refresh`
+- `POST /api/v1/ingestion/sources/refresh-concurrently`
+- `GET|POST /api/v1/ingestion/schedules`
+- `PATCH /api/v1/ingestion/schedules/{schedule_id}`
+- `POST /api/v1/ingestion/schedules/{schedule_id}/run-now`
+- `GET /api/v1/ingestion/schedule-executions`
 - `POST /api/v1/ingestion/runs/{run_id}/succeed`
 - `POST /api/v1/ingestion/runs/{run_id}/fail`
 
@@ -243,15 +286,72 @@ La base ya incluye tablas de auditoria para ingestion:
 - `scraping_source`: fuente externa asociada a un supermercado.
 - `scraping_run`: ejecucion de scraping, estado, contadores y errores.
 
-El piloto incluye adaptadores HTTP reales para los catalogos publicos de Jumbo y
-La Coope en Casa. Se ejecutan manualmente, extraen pocas consultas y registran una
-corrida como exitosa o fallida. Sus resultados se imprimen como JSON y `items_loaded` queda en cero:
-el catalogo, matching y carga de precios siguen siendo responsabilidad de la
-siguiente etapa ETL.
+El piloto incluye adaptadores HTTP reales para los catalogos publicos de Carrefour,
+Jumbo y La Coope en Casa, mas un adaptador Playwright para La Anonima. La clave
+`scraper_key` queda asociada a la fuente configurada,
+por lo que el flujo no acepta un selector manual que pueda contradecirla. Cada
+adaptador resuelve consultas en paralelo, con un maximo de tres solicitudes HTTP
+simultaneas y reintentos acotados.
+
+La operacion de actualizacion guarda primero los datos extraidos en staging y luego
+ejecuta la validacion, normalizacion, deduplicacion y carga del historial de precios.
+Al refrescar varias fuentes, la extraccion de red se ejecuta concurrentemente con
+`asyncio.TaskGroup`, `Semaphore`, timeout por fuente y una `asyncio.Queue`; el
+consumidor procesa la persistencia ETL de a una fuente para conservar transacciones
+y auditoria consistentes. Una falla de fuente queda auditada y no cancela las demas.
+
+Para supermercados que dependan de JavaScript, la infraestructura incluye un pool
+acotado y reutilizable de paginas Playwright. La Anonima es la primera cadena real
+que utiliza esa infraestructura. El navegador se instala solo para esas fuentes:
+
+```bash
+uv sync --extra browser
+uv run playwright install chromium
+```
+
+La Anonima utiliza concretamente ese pool con `scraper_key=la_anonima`: abre hasta
+dos paginas reutilizables, ejecuta consultas en paralelo y extrae los atributos
+estructurados de cada tarjeta. Las cookies del piloto usan el identificador tecnico
+`47` del sitio y el codigo postal `9000`; ese valor no se presenta como numero
+publico de la sucursal. El adaptador rechaza otras ciudades hasta que tengan una
+configuracion de ubicacion verificada.
+
+En Windows, si el servidor ASGI fue iniciado con un event loop Selector (por
+ejemplo, bajo ciertos modos de recarga), el adaptador ejecuta Playwright en un
+hilo dedicado con loop Proactor. De esta forma el driver puede crear sus
+subprocesos sin cambiar el modelo concurrente del resto del backend.
 
 Antes de pasar a staging, el piloto de La Coope exige que todos los terminos
 significativos de la consulta aparezcan en el nombre o la marca. Esto evita que
 la busqueda amplia del proveedor cargue articulos ajenos a la frase solicitada.
+
+## Geografia y mapa
+
+La migracion `0008` agrega a `sucursal` la marca
+`coordenadas_verificadas`, la fuente consultada y la fecha de verificacion. El
+seed actualiza de forma idempotente las direcciones y puntos del piloto para
+21 sucursales de Carrefour, Jumbo, La Anonima, La Coope, Chango Mas,
+Maxiconsumo y Diarco en Comodoro Rivadavia y Rada Tilly. Maxiconsumo y Diarco
+solo tienen catalogo geografico por el momento; no se les asigna una fuente de
+scraping hasta implementar sus adaptadores. Una sucursal sin la marca de
+verificacion puede seguir existiendo para administracion, pero el caso de uso
+de ranking no calcula distancias ni la recomienda.
+
+El frontend consulta `/api/v1/branches?city_id=...` antes de calcular y envia
+solo los `branch_ids` verificados de la ciudad elegida. Como origen utiliza el
+centro de la ciudad o, si el usuario concede permiso al navegador, las
+coordenadas de `navigator.geolocation`. El componente
+`frontend/src/components/RankingMap.vue` representa el origen, la alternativa
+recomendada, las alternativas completas y las sucursales sin cobertura sobre
+OpenStreetMap mediante Leaflet.
+
+El adaptador de Carrefour crea una sesion VTEX, adjunta el codigo postal de
+Comodoro Rivadavia al `orderForm` y reutiliza esa sesion para consultar el catalogo.
+Solo conserva ofertas con precio positivo y stock disponible. Cuando Carrefour
+confirma el codigo postal, el payload queda marcado con `location_verified=true`.
+Si la confirmacion falla o se solicita una ciudad sin configuracion regional, el
+fallback queda marcado con `location_verified=false` y no debe presentarse como un
+precio confirmado para una sucursal determinada.
 
 Tras aplicar la migracion y el seed, obtene el identificador de la fuente:
 
@@ -264,20 +364,17 @@ Luego, desde `backend/`, ejecuta el piloto con pocas consultas:
 ```powershell
 uv run python -m app.modules.ingestion.interfaces.cli.run_scraping `
   --source-id <UUID_DE_LA_FUENTE_JUMBO> `
-  --scraper jumbo `
   --city "Comodoro Rivadavia" `
   --query "coca cola" `
   --query "leche" `
   --limit 5
 ```
 
-Para La Coope, usa el identificador de `La Coope public catalog pilot` y el
-selector correspondiente:
+Para La Coope, usa el identificador de `La Coope public catalog pilot`:
 
 ```powershell
 uv run python -m app.modules.ingestion.interfaces.cli.run_scraping `
   --source-id <UUID_DE_LA_FUENTE_LA_COOPE> `
-  --scraper coope `
   --city "Comodoro Rivadavia" `
   --query "fernet" `
   --query "gancia" `
@@ -309,9 +406,85 @@ Cada corrida exitosa conserva sus items en `producto_extraido`. El proceso ETL:
 - valida codigo externo, nombre y precio positivo dentro de un limite razonable;
 - marca duplicados dentro de la misma corrida sin descartarlos de la auditoria;
 - reutiliza una publicacion existente por supermercado y codigo externo;
-- relaciona nombres con la misma clave normalizada o crea un producto valido;
+- resuelve identidad por publicacion conocida, GTIN valido o equivalencia estructural
+  no ambigua de marca, variante y presentacion;
+- crea un producto nuevo solo cuando no existe una coincidencia canonica confiable;
 - inserta una observacion de precio por producto fuente, sucursal y fecha sin
   duplicar el historial al reejecutarse.
+
+Las unidades comparables se llevan a una base comun (`2,25 L = 2250 ml =
+2250 cm3`, `1 kg = 1000 g`). Los codigos internos de una cadena no se aceptan
+como GTIN: solo se usan GTIN-8/12/13/14 con digito verificador valido. Si dos
+productos canonicos son compatibles con la misma publicacion, el item queda sin
+fusionar para evitar falsos positivos.
+
+Ademas del checksum, el ETL exige que el scraper declare
+`identifier_type=gtin`; los identificadores declarados como `internal` nunca se
+promueven a GTIN. La evidencia historica de staging permite completar marcas y
+GTIN faltantes mediante una operacion auditable:
+
+```powershell
+uv run python scripts/enrich_product_catalog.py
+uv run python scripts/enrich_product_catalog.py --apply
+```
+
+La primera ejecucion genera el CSV de simulacion. Solo se aplican marcas con una
+unica clave normalizada por producto y GTIN que apuntan a un solo producto activo.
+Los codigos asociados a productos distintos quedan reportados como conflictos y
+requieren revision manual.
+
+La revision asistida persiste esos casos y agrega candidatos semanticos solamente
+cuando coinciden marca y cantidad bajo alias controlados (`sin azucar=zero` y
+`liviano=light`). El escaneo nunca fusiona productos:
+
+```powershell
+uv run python scripts/review_product_identity.py scan
+uv run python scripts/review_product_identity.py list --status pending
+```
+
+Cada decision exige una nota de auditoria. Aprobar reasigna las publicaciones,
+conserva sus precios y desactiva el producto origen; rechazar conserva el catalogo
+sin cambios y evita que la misma propuesta vuelva a generarse:
+
+```powershell
+uv run python scripts/review_product_identity.py approve `
+  --review-id <UUID> --note "Evidencia verificada"
+
+uv run python scripts/review_product_identity.py reject `
+  --review-id <UUID> --note "Empaque incompatible"
+```
+
+Para auditar y corregir productos historicos creados antes de estas reglas, el
+comando se ejecuta primero sin modificar datos y genera un CSV:
+
+```powershell
+uv run python scripts/reconcile_product_identity.py
+```
+
+Luego de revisar las sugerencias se pueden aplicar. La operacion reasigna
+`producto_fuente`, conserva todo el historial de `precio` y desactiva solamente
+productos debiles que quedan sin publicaciones:
+
+```powershell
+uv run python scripts/reconcile_product_identity.py --apply
+```
+
+Cuando dos o mas supermercados ya cargaron productos separados con exactamente
+la misma identidad estructural, se puede consolidar el catalogo. El comando exige
+la misma marca/variante y cantidad normalizada, ademas de publicaciones en al
+menos dos cadenas. Tambien se ejecuta primero como simulacion:
+
+```powershell
+uv run python scripts/consolidate_product_catalog.py
+```
+
+Despues de revisar el CSV, `--apply` conserva cada `producto_fuente` y su historial,
+los reasigna al producto superviviente, completa unidad/contenido y desactiva los
+productos duplicados que quedaron sin publicaciones:
+
+```powershell
+uv run python scripts/consolidate_product_catalog.py --apply
+```
 
 La fuente puede tener una sucursal destino configurada; en ese caso el ETL la usa
 por defecto. Tambien se puede indicar una sucursal activa de la misma cadena como
@@ -345,7 +518,6 @@ resultados por consulta:
 
 ```powershell
 $body = @{
-  scraper = "coope"
   queries = @("gancia")
   city = "Comodoro Rivadavia"
   limit = 5
@@ -360,9 +532,107 @@ Invoke-RestMethod `
 
 La respuesta incluye la corrida auditada y el resumen de calidad/carga del ETL.
 
+Para actualizar varias fuentes en paralelo, enviá sus identificadores. El limite
+de concurrencia se aplica a las fuentes y cada una conserva su resultado, aun si
+otra falla:
+
+```powershell
+$body = @{
+  source_ids = @("<UUID_JUMBO>", "<UUID_LA_COOPE>")
+  queries = @("gancia", "leche")
+  city = "Comodoro Rivadavia"
+  limit = 5
+  max_concurrency = 2
+  timeout_seconds = 20
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body `
+  http://127.0.0.1:8000/api/v1/ingestion/sources/refresh-concurrently
+```
+
 La API de administracion permite crear, listar y activar/desactivar fuentes,
 iniciar una corrida por fuente y finalizarla como exitosa o fallida. Solo se
 permite una corrida abierta por fuente; estas operaciones no ejecutan scraping.
+
+## Actualizacion automatica
+
+La migracion `0009` agrega un plan persistente por fuente y un historial de
+ejecuciones programadas. FastAPI inicia un worker asincrono que consulta planes
+vencidos, los reclama mediante un lease en base de datos y ejecuta el mismo flujo
+auditado de scraping y ETL usado por la API manual. No se crean planes activos en
+el seed: su frecuencia y consultas deben definirse de forma explicita.
+
+Variables operativas disponibles en `.env`:
+
+- `INGESTION_SCHEDULER_ENABLED`: inicia o no el worker con FastAPI.
+- `INGESTION_SCHEDULER_POLL_SECONDS`: frecuencia de consulta de planes vencidos.
+- `INGESTION_SCHEDULER_BATCH_SIZE`: maximo de planes reclamados por ciclo.
+- `INGESTION_SCHEDULER_MAX_CONCURRENCY`: trabajos externos simultaneos.
+- `INGESTION_SCHEDULER_LEASE_SECONDS`: vencimiento del reclamo ante una caida.
+
+Para crear un plan diario, usa el identificador de una fuente activa:
+
+```powershell
+$body = @{
+  source_id = "<UUID_DE_FUENTE>"
+  name = "Actualizacion diaria"
+  queries = @("leche", "coca cola", "arroz")
+  city = "Comodoro Rivadavia"
+  interval_minutes = 1440
+  retry_delay_minutes = 5
+  result_limit = 10
+  timeout_seconds = 60
+  enabled = $true
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body `
+  http://127.0.0.1:8000/api/v1/ingestion/schedules
+```
+
+El primer disparo queda previsto para un intervalo despues del alta. Puede
+ejecutarse inmediatamente y consultar ambos niveles de auditoria:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  http://127.0.0.1:8000/api/v1/ingestion/schedules/<UUID_PLAN>/run-now
+
+Invoke-RestMethod `
+  "http://127.0.0.1:8000/api/v1/ingestion/schedule-executions?schedule_id=<UUID_PLAN>"
+
+Invoke-RestMethod `
+  "http://127.0.0.1:8000/api/v1/ingestion/runs?source_id=<UUID_FUENTE>"
+```
+
+Una falla queda registrada y no cancela otros planes del lote. El siguiente
+intento aplica backoff exponencial acotado (`1x`, `2x`, `4x`, `8x`) sobre
+`retry_delay_minutes`, sin superar el intervalo regular. Una ejecucion exitosa
+restablece el contador y agenda el intervalo normal.
+
+## Benchmark de concurrencia
+
+El comando experimental compara el refresco completo secuencial contra el
+concurrente, alterna el orden de cada repeticion y genera un CSV con tiempos,
+resultados ETL, fallos parciales y referencias a las corridas auditadas. Requiere
+al menos dos fuentes activas que tengan una sucursal destino configurada:
+
+```powershell
+uv run python scripts/benchmark_scraping_concurrency.py `
+  --source-id <UUID_FUENTE_1> `
+  --source-id <UUID_FUENTE_2> `
+  --query "coca cola" `
+  --query "leche" `
+  --repetitions 3 `
+  --max-concurrency 2
+```
+
+El protocolo, las variables registradas y la interpretacion de resultados estan
+en [docs/experimento-concurrencia.md](../docs/experimento-concurrencia.md).
 
 ## Pruebas
 

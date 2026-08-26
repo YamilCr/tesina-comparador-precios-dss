@@ -32,6 +32,7 @@ SOURCE_1_ID = UUID("00000000-0000-0000-0000-000000000051")
 SOURCE_2_ID = UUID("00000000-0000-0000-0000-000000000052")
 SOURCE_3_ID = UUID("00000000-0000-0000-0000-000000000053")
 SOURCE_4_ID = UUID("00000000-0000-0000-0000-000000000054")
+EVALUATED_AT = "2026-06-01T10:00:00+00:00"
 
 
 @dataclass(frozen=True)
@@ -512,7 +513,10 @@ def test_current_prices_endpoint_returns_prices_for_product() -> None:
         response = _request(
             "GET",
             "/api/v1/prices/current",
-            query={"product_id": str(PRODUCT_1_ID)},
+            query={
+                "product_id": str(PRODUCT_1_ID),
+                "as_of": EVALUATED_AT,
+            },
         )
     finally:
         _clear_overrides()
@@ -551,7 +555,10 @@ def test_compare_prices_endpoint_returns_prices_for_products() -> None:
         response = _request(
             "GET",
             "/api/v1/prices/compare",
-            query={"product_ids": [str(PRODUCT_1_ID), str(PRODUCT_2_ID)]},
+            query={
+                "product_ids": [str(PRODUCT_1_ID), str(PRODUCT_2_ID)],
+                "as_of": EVALUATED_AT,
+            },
         )
     finally:
         _clear_overrides()
@@ -598,6 +605,7 @@ def test_decision_ranking_endpoint_returns_ranked_alternatives() -> None:
                     {"product_id": str(PRODUCT_1_ID), "quantity": "1"},
                     {"product_id": str(PRODUCT_2_ID), "quantity": "1"},
                 ],
+                "as_of": EVALUATED_AT,
             },
         )
     finally:
@@ -615,7 +623,11 @@ def test_current_prices_endpoint_lists_all_prices_without_filters() -> None:
     """Verifica el contrato estándar de error HTTP."""
     _install_fake_unit_of_work()
     try:
-        response = _request("GET", "/api/v1/prices/current")
+        response = _request(
+            "GET",
+            "/api/v1/prices/current",
+            query={"as_of": EVALUATED_AT},
+        )
     finally:
         _clear_overrides()
 

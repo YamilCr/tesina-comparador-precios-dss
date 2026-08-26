@@ -179,6 +179,7 @@ async def _seed_sqlite_database(
                     latitud=Decimal("-45.864500"),
                     longitud=Decimal("-67.482000"),
                     activo=True,
+                    coordenadas_verificadas=True,
                 ),
                 BranchModel(
                     id=seed.carrefour_branch_id,
@@ -189,6 +190,7 @@ async def _seed_sqlite_database(
                     latitud=Decimal("-45.875000"),
                     longitud=Decimal("-67.510000"),
                     activo=True,
+                    coordenadas_verificadas=True,
                 ),
                 ProductSourceModel(
                     id=seed.la_coca_source_id,

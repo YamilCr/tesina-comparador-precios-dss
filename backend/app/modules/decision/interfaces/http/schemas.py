@@ -1,5 +1,6 @@
 """Schemas HTTP para el motor de decisión DSS."""
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -35,6 +36,8 @@ class RankingRequest(BaseModel):
     city_id: UUID | None = None
     branch_ids: list[UUID] | None = None
     weights: RankingWeightsRequest = Field(default_factory=RankingWeightsRequest)
+    as_of: datetime | None = None
+    max_price_age_days: int = Field(default=14, ge=1, le=90)
 
     @model_validator(mode="after")
     def validate_request(self) -> "RankingRequest":

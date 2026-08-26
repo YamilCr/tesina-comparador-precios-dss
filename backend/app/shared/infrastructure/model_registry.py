@@ -7,8 +7,11 @@ from app.modules.catalog.infrastructure.persistence import (
     ProductSourceModel,
 )
 from app.modules.ingestion.infrastructure.persistence import (
+    ProductIdentityReviewModel,
+    ScheduledRefreshExecutionModel,
     ScrapedProductModel,
     ScrapingRunModel,
+    ScrapingScheduleModel,
     ScrapingSourceModel,
 )
 from app.modules.prices.infrastructure.persistence import PriceModel
@@ -27,8 +30,11 @@ __all__ = [
     "ProductCategoryModel",
     "ProductModel",
     "ProductSourceModel",
+    "ProductIdentityReviewModel",
     "ProvinceModel",
+    "ScheduledRefreshExecutionModel",
     "ScrapingRunModel",
+    "ScrapingScheduleModel",
     "ScrapedProductModel",
     "ScrapingSourceModel",
     "SupermarketModel",

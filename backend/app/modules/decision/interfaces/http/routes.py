@@ -57,6 +57,13 @@ def _ranking_payload(response) -> dict:
             "saving": str(response.weights.saving),
         },
         "observed_at": response.observed_at.isoformat() if response.observed_at else None,
+        "quality": {
+            "evaluated_at": response.quality.evaluated_at.isoformat(),
+            "max_price_age_days": response.quality.max_price_age_days,
+            "eligible_price_count": response.quality.eligible_price_count,
+            "stale_excluded_count": response.quality.stale_excluded_count,
+            "suspect_excluded_count": response.quality.suspect_excluded_count,
+        },
         "ranking": [
             {
                 "position": result.position,
@@ -91,7 +98,11 @@ def _ranking_payload(response) -> dict:
                     "longitude": str(item.branch.longitude),
                 },
                 "missing_products": [
-                    {"id": str(product.id), "normalized_name": product.normalized_name}
+                    {
+                        "id": str(product.id),
+                        "normalized_name": product.normalized_name,
+                        "reason": product.reason,
+                    }
                     for product in item.missing_products
                 ],
             }
@@ -122,6 +133,8 @@ async def calculate_ranking(request: RankingRequest, uow: UnitOfWorkDependency) 
                     distance=request.weights.distance,
                     saving=request.weights.saving,
                 ),
+                as_of=request.as_of,
+                max_price_age_days=request.max_price_age_days,
             )
         )
     except ValueError as error:

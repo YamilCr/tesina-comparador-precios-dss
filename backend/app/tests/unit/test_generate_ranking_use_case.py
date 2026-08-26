@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import TracebackType
 from uuid import UUID
@@ -102,7 +103,12 @@ class FakePriceRepository:
 class FakeUnitOfWork:
     """Unit of Work en memoria para probar la capa application."""
 
-    def __init__(self, *, omit_second_branch_second_product: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        omit_second_branch_second_product: bool = False,
+        second_branch_coordinates_verified: bool = True,
+    ) -> None:
         products = [
             Product(id=PRODUCT_1_ID, normalized_name="Coca Cola 2.25 L"),
             Product(id=PRODUCT_2_ID, normalized_name="Leche Entera 1 L"),
@@ -155,6 +161,7 @@ class FakeUnitOfWork:
                 address="Av. Hipólito Yrigoyen 2600",
                 latitude=Decimal("-45.8750"),
                 longitude=Decimal("-67.5100"),
+                coordinates_verified=second_branch_coordinates_verified,
             ),
         ]
         prices = [
@@ -220,6 +227,7 @@ def _ranking_command() -> GenerateRankingCommand:
         ],
         origin_latitude=Decimal("-45.8641"),
         origin_longitude=Decimal("-67.4966"),
+        as_of=OBSERVED_AT,
     )
 
 
@@ -233,6 +241,8 @@ async def test_generate_ranking_returns_ranked_complete_branches() -> None:
     assert response.observed_at == OBSERVED_AT
     assert [result.position for result in response.ranking] == [1, 2]
     assert response.ranking[0].score >= response.ranking[1].score
+    assert response.quality.eligible_price_count == 4
+    assert response.quality.stale_excluded_count == 0
 
 
 @pytest.mark.asyncio
@@ -247,3 +257,33 @@ async def test_generate_ranking_reports_incomplete_branches() -> None:
     assert len(response.incomplete_branches) == 1
     assert response.incomplete_branches[0].branch.id == BRANCH_2_ID
     assert response.incomplete_branches[0].missing_products[0].id == PRODUCT_2_ID
+    assert response.incomplete_branches[0].missing_products[0].reason == "missing"
+
+
+@pytest.mark.asyncio
+async def test_generate_ranking_ignores_unverified_branch_coordinates() -> None:
+    """No debe calcular distancias ni recomendar puntos geográficos sin auditar."""
+    response = await GenerateRankingUseCase(
+        FakeUnitOfWork(second_branch_coordinates_verified=False)
+    ).execute(_ranking_command())
+
+    assert [result.branch.id for result in response.ranking] == [BRANCH_1_ID]
+    assert response.incomplete_branches == []
+
+
+@pytest.mark.asyncio
+async def test_generate_ranking_explains_stale_price_exclusions() -> None:
+    """Debe excluir datos vencidos y explicar la pérdida de cobertura."""
+    command = replace(_ranking_command(), as_of=OBSERVED_AT + timedelta(days=15))
+
+    response = await GenerateRankingUseCase(FakeUnitOfWork()).execute(command)
+
+    assert response.ranking == []
+    assert len(response.incomplete_branches) == 2
+    assert response.quality.eligible_price_count == 0
+    assert response.quality.stale_excluded_count == 4
+    assert {
+        product.reason
+        for branch in response.incomplete_branches
+        for product in branch.missing_products
+    } == {"stale"}

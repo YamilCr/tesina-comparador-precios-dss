@@ -33,7 +33,7 @@ DATABASE_URL=sqlite+aiosqlite:///price_dss_demo.db
 CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
 ```
 
-Nota: el backend actual permite CORS para `GET` y `POST`. Hay un endpoint `PATCH` de ingestion; si se consume desde navegador, hay que agregar `PATCH` a `allow_methods`.
+Nota: el backend permite CORS para `GET`, `POST` y `PATCH`.
 
 ## Formatos comunes
 
@@ -110,6 +110,11 @@ Para formularios, mostrar preferentemente `error.message`.
 | PATCH | `/api/v1/ingestion/sources/{source_id}` | Editar fuente scraping |
 | GET | `/api/v1/ingestion/runs` | Auditoría scraping |
 | POST | `/api/v1/ingestion/sources/{source_id}/runs` | Iniciar corrida scraping |
+| GET | `/api/v1/ingestion/schedules` | Listar planes automáticos |
+| POST | `/api/v1/ingestion/schedules` | Crear plan automático |
+| PATCH | `/api/v1/ingestion/schedules/{schedule_id}` | Editar o desactivar plan |
+| POST | `/api/v1/ingestion/schedules/{schedule_id}/run-now` | Ejecutar plan inmediatamente |
+| GET | `/api/v1/ingestion/schedule-executions` | Historial del scheduler |
 | POST | `/api/v1/ingestion/runs/{run_id}/succeed` | Marcar corrida exitosa |
 | POST | `/api/v1/ingestion/runs/{run_id}/fail` | Marcar corrida fallida |
 
@@ -539,6 +544,8 @@ type ScrapingSourceResponse = {
   supermarket_id: string
   name: string
   base_url: string
+  scraper_key: string
+  branch_id: string | null
   active: boolean
   created_at: string | null
 }
@@ -551,6 +558,35 @@ type ScrapingRunResponse = {
   finished_at: string | null
   items_scraped: number
   items_loaded: number
+  error_message: string | null
+}
+
+type ScrapingScheduleResponse = {
+  id: string
+  scraping_source_id: string
+  name: string
+  queries: string[]
+  city: string
+  interval_minutes: number
+  retry_delay_minutes: number
+  result_limit: number
+  timeout_seconds: number
+  enabled: boolean
+  next_run_at: string
+  locked_until: string | null
+  consecutive_failures: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+type ScheduledRefreshExecutionResponse = {
+  id: string
+  schedule_id: string
+  scraping_run_id: string | null
+  status: "running" | "succeeded" | "failed"
+  scheduled_for: string
+  started_at: string
+  finished_at: string | null
   error_message: string | null
 }
 ```
@@ -606,7 +642,22 @@ Respuesta:
 ScrapingSourceResponse
 ```
 
-Nota: este endpoint requiere habilitar `PATCH` en CORS para ser llamado desde navegador.
+`PATCH` esta habilitado en CORS para el frontend local.
+
+### Scheduler automatico
+
+`POST /api/v1/ingestion/schedules` crea un plan por fuente con `queries`, `city`,
+`interval_minutes`, `retry_delay_minutes`, `result_limit`, `timeout_seconds`,
+`next_run_at` opcional y `enabled`. `PATCH /api/v1/ingestion/schedules/{schedule_id}`
+acepta esos campos de forma parcial.
+
+`GET /api/v1/ingestion/schedules` acepta `enabled_only`. La ejecucion manual se
+realiza con `POST /api/v1/ingestion/schedules/{schedule_id}/run-now` y devuelve
+`ScheduledRefreshExecutionResponse`.
+
+`GET /api/v1/ingestion/schedule-executions` acepta `schedule_id` opcional y
+`limit` entre 1 y 500. Devuelve
+`CollectionResponse<ScheduledRefreshExecutionResponse>`.
 
 ### `GET /api/v1/ingestion/runs`
 
@@ -748,11 +799,9 @@ const mapPrice = (price: PriceResponse) => ({
 
 ## Desalineaciones / cuidados detectados
 
-1. `PATCH /api/v1/ingestion/sources/{source_id}` existe, pero CORS solo permite `GET` y `POST`. Si hay UI admin de ingestion, agregar `PATCH`.
-2. No hay auth. No exponer ingestion admin en producción sin permisos.
-3. Los decimales deben tratarse como strings en contrato externo.
-4. En ranking, los pesos deben sumar exactamente `1`; evitar floats crudos.
-5. El frontend no debe asumir que `city_name` viene en `RankingBranch`; debe resolverlo por `city_id`.
+1. No hay auth. No exponer ingestion admin en producción sin permisos.
+2. Los decimales deben tratarse como strings en contrato externo.
+3. En ranking, los pesos deben sumar exactamente `1`; evitar floats crudos.
+4. El frontend no debe asumir que `city_name` viene en `RankingBranch`; debe resolverlo por `city_id`.
 6. Las colecciones de precios son `CollectionResponse`, no `PaginatedResponse`.
 7. La búsqueda de productos con `q` funciona como autocomplete por `page_size`; no confiar todavía en paginación global exacta para esa búsqueda.
-

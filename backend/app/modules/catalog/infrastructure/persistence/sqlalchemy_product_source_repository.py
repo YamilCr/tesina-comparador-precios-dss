@@ -56,6 +56,22 @@ class SQLAlchemyProductSourceRepository(ProductSourceRepositoryPort):
         )
         return product_source_model_to_entity(model) if model is not None else None
 
+    async def find_by_gtin(self, gtin: str) -> list[ProductSource]:
+        """Busca publicaciones activas de cualquier supermercado por GTIN."""
+        models = await self._session.scalars(
+            select(ProductSourceModel)
+            .where(ProductSourceModel.gtin == gtin, ProductSourceModel.activo.is_(True))
+            .order_by(ProductSourceModel.supermercado_id)
+        )
+        return [product_source_model_to_entity(model) for model in models.all()]
+
+    async def list_all(self) -> list[ProductSource]:
+        """Lista publicaciones activas e inactivas para reconciliación administrativa."""
+        models = await self._session.scalars(
+            select(ProductSourceModel).order_by(ProductSourceModel.nombre_original)
+        )
+        return [product_source_model_to_entity(model) for model in models.all()]
+
     async def save(self, product_source: ProductSource) -> ProductSource:
         """Crea o actualiza una publicación sin confirmar la transacción."""
         model = await self._session.get(ProductSourceModel, product_source.id)
@@ -70,6 +86,7 @@ class SQLAlchemyProductSourceRepository(ProductSourceRepositoryPort):
             model.url_producto = product_source.product_url
             model.unidad_original = product_source.original_unit
             model.confianza_match = product_source.match_confidence
+            model.gtin = product_source.gtin
             model.activo = product_source.active
 
         await self._session.flush()

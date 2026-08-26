@@ -26,5 +26,7 @@ class CompareProductPricesUseCase:
                 city_id=query.city_id,
                 supermarket_id=query.supermarket_id,
                 limit=query.limit,
+                as_of=query.as_of,
+                max_age_days=query.max_age_days,
             )
         )

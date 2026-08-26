@@ -1,6 +1,6 @@
 """Caso de uso para generar ranking DSS multicriterio en memoria."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -11,6 +11,7 @@ from app.modules.decision.application.dto.ranking_dto import (
     IncompleteBranchDTO,
     MissingProductDTO,
     RankingBranchDTO,
+    RankingQualityDTO,
     RankingResponseDTO,
     RankingResultDTO,
 )
@@ -19,6 +20,7 @@ from app.modules.decision.domain.services import WeightedSumModel
 from app.modules.geo.domain.services import HaversineDistanceService
 from app.modules.geo.domain.value_objects import GeoPoint
 from app.modules.prices.domain.entities import Price
+from app.modules.prices.domain.services import PriceQualityPolicy, PriceQualitySelection
 from app.modules.supermarkets.domain.entities import Branch
 from app.shared.application import UnitOfWorkPort
 
@@ -48,6 +50,7 @@ class GenerateRankingUseCase:
         )
         product_ids = basket.product_ids()
         quantities = {item.product_id: item.quantity for item in basket.items}
+        evaluated_at = request.as_of or datetime.now(timezone.utc)
         requested_branch_ids = (
             set(request.branch_ids)
             if request.branch_ids is not None
@@ -69,7 +72,9 @@ class GenerateRankingUseCase:
             branches = [
                 branch
                 for branch in branches
-                if branch.supermarket_id in supermarket_names and branch.active
+                if branch.supermarket_id in supermarket_names
+                and branch.active
+                and branch.coordinates_verified
             ]
             branch_by_id = {branch.id: branch for branch in branches}
             if not branch_by_id:
@@ -78,6 +83,13 @@ class GenerateRankingUseCase:
                     incomplete_branches=[],
                     observed_at=None,
                     weights=request.weights,
+                    quality=RankingQualityDTO(
+                        evaluated_at=evaluated_at,
+                        max_price_age_days=request.max_price_age_days,
+                        eligible_price_count=0,
+                        stale_excluded_count=0,
+                        suspect_excluded_count=0,
+                    ),
                 )
 
             source_by_id, source_product_ids = await self._load_product_sources(uow, product_ids)
@@ -85,8 +97,17 @@ class GenerateRankingUseCase:
                 product_ids=product_ids,
                 branch_ids=list(branch_by_id),
             )
+            quality_selection = PriceQualityPolicy(
+                max_age_days=request.max_price_age_days
+            ).evaluate(prices, as_of=evaluated_at)
             latest_prices = self._select_latest_valid_prices(
-                prices=prices,
+                prices=quality_selection.eligible,
+                branch_by_id=branch_by_id,
+                source_by_id=source_by_id,
+                source_product_ids=source_product_ids,
+            )
+            exclusion_reasons = self._build_exclusion_reasons(
+                selection=quality_selection,
                 branch_by_id=branch_by_id,
                 source_by_id=source_by_id,
                 source_product_ids=source_product_ids,
@@ -116,6 +137,10 @@ class GenerateRankingUseCase:
                             MissingProductDTO(
                                 id=product_id,
                                 normalized_name=product_names[product_id],
+                                reason=exclusion_reasons.get(
+                                    (branch.id, product_id),
+                                    "missing",
+                                ),
                             )
                             for product_id in missing_product_ids
                         ],
@@ -183,7 +208,39 @@ class GenerateRankingUseCase:
             ),
             observed_at=observed_at,
             weights=request.weights,
+            quality=RankingQualityDTO(
+                evaluated_at=evaluated_at,
+                max_price_age_days=request.max_price_age_days,
+                eligible_price_count=len(quality_selection.eligible),
+                stale_excluded_count=len(quality_selection.stale),
+                suspect_excluded_count=len(quality_selection.suspect),
+            ),
         )
+
+    @staticmethod
+    def _build_exclusion_reasons(
+        *,
+        selection: PriceQualitySelection,
+        branch_by_id: dict[UUID, Branch],
+        source_by_id: dict[UUID, ProductSource],
+        source_product_ids: dict[UUID, UUID],
+    ) -> dict[tuple[UUID, UUID], str]:
+        """Explica por qué un producto no quedó habilitado para una sucursal."""
+        reasons: dict[tuple[UUID, UUID], str] = {}
+        for status, excluded_prices in (
+            ("stale", selection.stale),
+            ("suspect", selection.suspect),
+        ):
+            for price in excluded_prices:
+                branch = branch_by_id.get(price.branch_id)
+                source = source_by_id.get(price.product_source_id)
+                product_id = source_product_ids.get(price.product_source_id)
+                if branch is None or source is None or product_id is None:
+                    continue
+                if source.supermarket_id != branch.supermarket_id:
+                    continue
+                reasons[(branch.id, product_id)] = status
+        return reasons
 
     @staticmethod
     async def _load_product_names(

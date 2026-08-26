@@ -5,6 +5,7 @@ from .ranking_dto import (
     MissingProductDTO,
     RankingBranchDTO,
     RankingRequestDTO,
+    RankingQualityDTO,
     RankingResponseDTO,
     RankingResultDTO,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "MissingProductDTO",
     "RankingBranchDTO",
     "RankingRequestDTO",
+    "RankingQualityDTO",
     "RankingResponseDTO",
     "RankingResultDTO",
 ]

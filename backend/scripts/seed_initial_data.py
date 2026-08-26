@@ -34,78 +34,50 @@ from app.modules.supermarkets.infrastructure.persistence import (  # noqa: E402
 )
 from app.shared.infrastructure.database import create_database_engine  # noqa: E402
 from app.shared.infrastructure.settings import get_settings  # noqa: E402
+from scripts.branch_seed_data import BRANCHES  # noqa: E402
 
 
 SEED_OBSERVED_AT = datetime(2026, 6, 1, 10, 0, 0, tzinfo=timezone.utc)
+GEOGRAPHY_VERIFIED_AT = datetime(2026, 8, 24, 12, 0, 0, tzinfo=timezone.utc)
 
 SUPERMARKETS = (
-    {"name": "La Anónima", "website_url": None},
-    {"name": "Carrefour", "website_url": None},
-    {"name": "Chango Más", "website_url": None},
-    {"name": "Jumbo", "website_url": None},
-    {"name": "La Coope", "website_url": None},
+    {"name": "La Anónima", "website_url": "https://www.laanonimaonline.com/"},
+    {"name": "Carrefour", "website_url": "https://www.carrefour.com.ar/"},
+    {"name": "Chango Más", "website_url": "https://www.masonline.com.ar/"},
+    {"name": "Jumbo", "website_url": "https://www.jumbo.com.ar/"},
+    {"name": "Maxiconsumo", "website_url": "https://www.maxiconsumo.com/"},
+    {"name": "La Coope", "website_url": "https://www.lacoopeencasa.coop/"},
+    {"name": "Diarco", "website_url": "https://www.diarco.com.ar/"},
 )
 
 SCRAPING_SOURCES = (
     {
-        "supermarket": "Jumbo",
-        "name": "Jumbo public catalog pilot",
-        "base_url": "https://www.jumbo.com.ar",
+        "supermarket": "Carrefour",
+        "name": "Carrefour public catalog pilot",
+        "base_url": "https://www.carrefour.com.ar",
+        "scraper_key": "carrefour",
+        "branch_key": "carrefour_comodoro",
+    },
+    {
+    "supermarket": "Jumbo",
+    "name": "Jumbo public catalog pilot",
+    "base_url": "https://www.jumbo.com.ar",
+        "scraper_key": "jumbo",
+        "branch_key": "jumbo_comodoro",
+    },
+    {
+        "supermarket": "La Anónima",
+        "name": "La Anonima Playwright catalog pilot",
+        "base_url": "https://www.laanonima.com.ar",
+        "scraper_key": "la_anonima",
+        "branch_key": "la_anonima_centro",
     },
     {
         "supermarket": "La Coope",
         "name": "La Coope public catalog pilot",
         "base_url": "https://api.lacoopeencasa.coop",
+        "scraper_key": "coope",
         "branch_key": "la_coope_kennedy_145",
-    },
-)
-
-BRANCHES = (
-    {
-        "key": "la_anonima_centro",
-        "supermarket": "La Anónima",
-        "city": "Comodoro Rivadavia",
-        "name": "Centro",
-        "address": "San Martín 500",
-        "latitude": Decimal("-45.8645"),
-        "longitude": Decimal("-67.4820"),
-    },
-    {
-        "key": "carrefour_comodoro",
-        "supermarket": "Carrefour",
-        "city": "Comodoro Rivadavia",
-        "name": "Comodoro",
-        "address": "Av. Hipólito Yrigoyen 2600",
-        "latitude": Decimal("-45.8750"),
-        "longitude": Decimal("-67.5100"),
-    },
-    {
-        "key": "changomas_comodoro",
-        "supermarket": "Chango Más",
-        "city": "Comodoro Rivadavia",
-        "name": "Comodoro",
-        "address": "Av. Polonia 1200",
-        "latitude": Decimal("-45.8460"),
-        "longitude": Decimal("-67.5000"),
-    },
-    {
-        "key": "la_anonima_rada_tilly",
-        "supermarket": "La Anónima",
-        "city": "Rada Tilly",
-        "name": "Rada Tilly",
-        "address": "Av. Moyano 900",
-        "latitude": Decimal("-45.9250"),
-        "longitude": Decimal("-67.5550"),
-    },
-    {
-        "key": "la_coope_kennedy_145",
-        "supermarket": "La Coope",
-        "city": "Comodoro Rivadavia",
-        "name": "Sucursal 145 Kennedy",
-        "address": "Av. J. F. Kennedy 3091, esquina Patricios",
-        # Coordinate fallback until the branch point is verified with a trusted geocoder.
-        "latitude": Decimal("-45.8641"),
-        "longitude": Decimal("-67.4966"),
     },
 )
 
@@ -172,7 +144,9 @@ SUPERMARKET_CODE_PREFIXES = {
     "Carrefour": "CAR",
     "Chango Más": "CHA",
     "Jumbo": "JUM",
+    "Maxiconsumo": "MAX",
     "La Coope": "COO",
+    "Diarco": "DIA",
 }
 
 PRICE_DATA = {
@@ -316,6 +290,9 @@ async def get_or_create_supermarket(
         select(SupermarketModel).where(SupermarketModel.nombre == name)
     )
     if supermarket is not None:
+        supermarket.sitio_web = website_url
+        supermarket.activo = True
+        await session.flush()
         return supermarket, False
 
     supermarket = SupermarketModel(
@@ -334,6 +311,7 @@ async def get_or_create_scraping_source(
     supermarket_id: UUID,
     name: str,
     base_url: str,
+    scraper_key: str,
     branch_id: UUID | None,
 ) -> tuple[ScrapingSourceModel, bool]:
     """Creates the configured Jumbo pilot source once, without creating any prices."""
@@ -344,6 +322,7 @@ async def get_or_create_scraping_source(
         )
     )
     if source is not None:
+        source.scraper_key = scraper_key
         source.sucursal_id = branch_id
         await session.flush()
         return source, False
@@ -353,6 +332,7 @@ async def get_or_create_scraping_source(
         supermercado_id=supermarket_id,
         nombre=name,
         base_url=base_url,
+        scraper_key=scraper_key,
         sucursal_id=branch_id,
         activo=True,
     )
@@ -369,16 +349,27 @@ async def get_or_create_branch(
     address: str,
     latitude: Decimal,
     longitude: Decimal,
+    coordinate_source: str,
+    legacy_names: tuple[str, ...] = (),
 ) -> tuple[BranchModel, bool]:
     """Busca una sucursal por su clave natural o crea el registro inicial."""
     branch = await session.scalar(
         select(BranchModel).where(
             BranchModel.supermercado_id == supermarket_id,
-            BranchModel.nombre == name,
-            BranchModel.direccion == address,
+            BranchModel.nombre.in_((name, *legacy_names)),
         )
     )
     if branch is not None:
+        branch.ciudad_id = city_id
+        branch.nombre = name
+        branch.direccion = address
+        branch.latitud = latitude
+        branch.longitud = longitude
+        branch.activo = True
+        branch.coordenadas_verificadas = True
+        branch.fuente_coordenadas = coordinate_source
+        branch.coordenadas_verificadas_en = GEOGRAPHY_VERIFIED_AT
+        await session.flush()
         return branch, False
 
     branch = BranchModel(
@@ -390,6 +381,9 @@ async def get_or_create_branch(
         latitud=latitude,
         longitud=longitude,
         activo=True,
+        coordenadas_verificadas=True,
+        fuente_coordenadas=coordinate_source,
+        coordenadas_verificadas_en=GEOGRAPHY_VERIFIED_AT,
     )
     session.add(branch)
     await session.flush()
@@ -568,6 +562,8 @@ async def seed_initial_data() -> None:
                         branch_data["address"],
                         branch_data["latitude"],
                         branch_data["longitude"],
+                        branch_data["coordinate_source"],
+                        branch_data["legacy_names"],
                     )
                     branches[branch_data["key"]] = branch
                     branch_supermarkets[branch_data["key"]] = branch_data["supermarket"]
@@ -581,6 +577,7 @@ async def seed_initial_data() -> None:
                         supermarkets[source_data["supermarket"]].id,
                         source_data["name"],
                         source_data["base_url"],
+                        source_data["scraper_key"],
                         branch_id,
                     )
                     summary.record("scraping_sources", created)

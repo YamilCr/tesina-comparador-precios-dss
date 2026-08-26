@@ -138,6 +138,7 @@ class ProductSourceModel(Base):
         Index("ix_producto_fuente_producto_id", "producto_id"),
         Index("ix_producto_fuente_supermercado_id", "supermercado_id"),
         Index("ix_producto_fuente_nombre_original", "nombre_original"),
+        Index("ix_producto_fuente_gtin", "gtin"),
         Index("ix_producto_fuente_activo", "activo"),
     )
 
@@ -152,6 +153,7 @@ class ProductSourceModel(Base):
     url_producto: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     unidad_original: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confianza_match: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    gtin: Mapped[str | None] = mapped_column(String(14), nullable=True)
     activo: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

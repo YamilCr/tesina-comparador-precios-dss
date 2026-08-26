@@ -64,12 +64,33 @@ class CoopeScraper(ScraperPort):
             timeout=timeout,
             headers=headers,
         ) as session:
-            results: list[dict] = []
-            for query in self._queries:
-                results.extend(await self.search_product(session, query))
+            results = await self._search_queries_concurrently(session)
 
         unique_results = {item["external_id"]: item for item in results}
         return list(unique_results.values())
+
+    async def _search_queries_concurrently(
+        self,
+        session: aiohttp.ClientSession,
+    ) -> list[dict]:
+        """Bounds simultaneous requests while preserving partial query results."""
+        semaphore = asyncio.Semaphore(3)
+
+        async def search(query: str) -> list[dict]:
+            async with semaphore:
+                return await self.search_product(session, query)
+
+        outcomes = await asyncio.gather(
+            *(search(query) for query in self._queries),
+            return_exceptions=True,
+        )
+        results: list[dict] = []
+        for query, outcome in zip(self._queries, outcomes, strict=True):
+            if isinstance(outcome, Exception):
+                logger.warning("La Coope query %r failed without aborting the source.", query)
+                continue
+            results.extend(outcome)
+        return results
 
     async def search_product(self, session: aiohttp.ClientSession, query: str) -> list[dict]:
         """Queries the public La Coope en Casa article-search endpoint."""
