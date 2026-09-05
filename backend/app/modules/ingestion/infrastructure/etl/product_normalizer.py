@@ -25,8 +25,21 @@ STOP_WORDS = frozenset(
         "las",
         "los",
         "original",
+        "pack",
+        "packs",
+        "paq",
+        "paquete",
+        "paquetes",
         "pet",
+        "rollo",
+        "rollos",
         "sabor",
+        "u",
+        "ud",
+        "uds",
+        "un",
+        "unidad",
+        "unidades",
         "x",
     }
 )
@@ -48,14 +61,25 @@ UNIT_ALIASES = {
     "litros": ("ml", Decimal("1000")),
     "ml": ("ml", Decimal("1")),
     "pack": ("unit", Decimal("1")),
+    "paq": ("unit", Decimal("1")),
     "rollo": ("unit", Decimal("1")),
     "rollos": ("unit", Decimal("1")),
     "u": ("unit", Decimal("1")),
+    "ud": ("unit", Decimal("1")),
+    "uds": ("unit", Decimal("1")),
+    "un": ("unit", Decimal("1")),
     "unidad": ("unit", Decimal("1")),
     "unidades": ("unit", Decimal("1")),
 }
 _UNIT_PATTERN = "|".join(sorted((re.escape(unit) for unit in UNIT_ALIASES), key=len, reverse=True))
 _QUANTITY_PATTERN = re.compile(rf"(?<!\w)(\d+(?:\.\d+)?)\s*({_UNIT_PATTERN})\b")
+_PACK_WORD_PATTERN = re.compile(r"\b(?:pack|packs|paq|paquete|paquetes)\s*(?:x|por)?\s*(\d+)\b")
+_PACK_MULTIPLIER_PATTERN = re.compile(
+    rf"\bx\s*(\d+)\b(?!\s*[.,]\d)(?!\s*(?:{_UNIT_PATTERN})\b)"
+)
+_COUNT_UNIT_PATTERN = re.compile(
+    r"\b(\d+)\s*(?:unidades|unidad|rollos|rollo|uds|ud|un|u)\b"
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +96,7 @@ class ProductIdentity:
 
     tokens: frozenset[str]
     quantity: PackageQuantity | None
+    pack_size: int | None = None
 
 
 @dataclass(frozen=True)
@@ -107,21 +132,25 @@ def build_product_identity(
 ) -> ProductIdentity:
     """Builds normalized tokens and package quantity from source or catalog fields."""
     quantity = _explicit_quantity(unit_measure, net_content)
+    pack_size = _resolved_pack_size(name, presentation)
     if quantity is None and presentation:
         quantity = extract_package_quantity(presentation)
     if quantity is None:
         quantity = extract_package_quantity(name)
-    return ProductIdentity(tokens=identity_tokens(name), quantity=quantity)
+    return ProductIdentity(tokens=identity_tokens(name), quantity=quantity, pack_size=pack_size)
 
 
 def product_matching_key(value: str) -> str:
     """Builds a stable exact-match key with normalized decimals and measurement units."""
     normalized = _ascii_text(value)
-    quantity = extract_package_quantity(normalized)
-    tokens = identity_tokens(normalized)
+    identity = build_product_identity(normalized)
+    quantity = identity.quantity
+    tokens = identity.tokens
     parts = sorted(tokens)
     if quantity is not None:
         parts.append(f"quantity={_decimal_text(quantity.amount)}{quantity.unit}")
+    if identity.pack_size is not None:
+        parts.append(f"pack={identity.pack_size}")
     return " ".join(parts)
 
 
@@ -129,6 +158,9 @@ def identity_tokens(value: str) -> frozenset[str]:
     """Returns meaningful name tokens while preserving product variants."""
     normalized = _ascii_text(value)
     normalized = _QUANTITY_PATTERN.sub(" ", normalized)
+    normalized = _PACK_WORD_PATTERN.sub(" ", normalized)
+    normalized = _PACK_MULTIPLIER_PATTERN.sub(" ", normalized)
+    normalized = _COUNT_UNIT_PATTERN.sub(" ", normalized)
     tokens = re.findall(r"[a-z]+|\d+(?:\.\d+)?", normalized)
     return frozenset(token for token in tokens if token not in STOP_WORDS)
 
@@ -161,6 +193,20 @@ def extract_package_quantity(value: str | None) -> PackageQuantity | None:
             continue
         base_unit, factor = UNIT_ALIASES[unit_text]
         matches.add(PackageQuantity(amount=(amount * factor).normalize(), unit=base_unit))
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def extract_pack_size(value: str | None) -> int | None:
+    """Extracts one unambiguous pack size without mistaking net content for packs."""
+    if not value:
+        return None
+    normalized = _ascii_text(value)
+    matches: set[int] = set()
+    for pattern in (_PACK_WORD_PATTERN, _PACK_MULTIPLIER_PATTERN, _COUNT_UNIT_PATTERN):
+        for amount_text in pattern.findall(normalized):
+            amount = int(amount_text)
+            if amount > 1:
+                matches.add(amount)
     return next(iter(matches)) if len(matches) == 1 else None
 
 
@@ -212,6 +258,15 @@ def _explicit_quantity(unit_measure: str | None, net_content: Decimal | None) ->
         return None
     base_unit, factor = alias
     return PackageQuantity(amount=(net_content * factor).normalize(), unit=base_unit)
+
+
+def _resolved_pack_size(name: str, presentation: str | None) -> int | None:
+    matches = {
+        pack_size
+        for pack_size in (extract_pack_size(name), extract_pack_size(presentation))
+        if pack_size is not None
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def _ascii_text(value: str) -> str:

@@ -256,6 +256,7 @@ def _semantic_groups(products: list[Product]) -> dict[tuple, list[Product]]:
             tuple(sorted(tokens)),
             identity.quantity.unit,
             identity.quantity.amount,
+            identity.pack_size,
         )
         groups[signature].append(product)
     return {

@@ -201,6 +201,48 @@ async def test_etl_reuses_canonical_product_for_equivalent_packaging(
 
 
 @pytest.mark.asyncio
+async def test_etl_reuses_canonical_product_for_compact_brand_spelling(
+    sqlite_session_factory,
+    seed_data: IntegrationSeedData,
+) -> None:
+    unit_of_work = SQLAlchemyUnitOfWork(sqlite_session_factory)
+    source = await CreateScrapingSourceUseCase(unit_of_work).execute(
+        CreateScrapingSourceCommand(
+            supermarket_id=seed_data.la_anonima_id,
+            name="Compact brand source",
+            base_url="https://example.test",
+            branch_id=seed_data.la_branch_id,
+        )
+    )
+    products = [
+        {
+            "external_id": "COCA-COMPACT-2250",
+            "name": "CocaCola 2250ml",
+            "presentation": "2250 ml",
+            "price": "3299.90",
+        }
+    ]
+    extraction = await ExecuteScrapingRunUseCase(
+        unit_of_work,
+        lambda _: StaticScraper(products),
+    ).execute(source.id)
+
+    result = await LoadScrapingRunUseCase(unit_of_work).execute(extraction.run.id)
+
+    async with unit_of_work as uow:
+        loaded_source = await uow.product_sources.find_by_external_code(
+            seed_data.la_anonima_id,
+            "COCA-COMPACT-2250",
+        )
+
+    assert result.created_products == 0
+    assert result.loaded == 1
+    assert loaded_source is not None
+    assert loaded_source.product_id == seed_data.coca_product_id
+    assert loaded_source.match_confidence == Decimal("0.899")
+
+
+@pytest.mark.asyncio
 async def test_etl_prioritizes_global_gtin_over_different_source_text(
     sqlite_session_factory,
     seed_data: IntegrationSeedData,

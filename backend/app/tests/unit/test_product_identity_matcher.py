@@ -3,13 +3,18 @@
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from app.modules.catalog.domain.entities import Product
 from app.modules.ingestion.infrastructure.etl import (
     PackageQuantity,
     ProductIdentityCandidate,
     ProductIdentityMatcher,
+    build_product_identity,
+    extract_pack_size,
     extract_package_quantity,
     normalize_gtin,
+    product_matching_key,
 )
 
 
@@ -31,12 +36,59 @@ def _candidate(
     )
 
 
-def test_equivalent_volume_presentations_share_one_base_quantity() -> None:
-    expected = PackageQuantity(amount=Decimal("2250"), unit="ml")
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2,25 Lt.", PackageQuantity(amount=Decimal("2250"), unit="ml")),
+        ("2250cm3", PackageQuantity(amount=Decimal("2250"), unit="ml")),
+        ("2250 ml", PackageQuantity(amount=Decimal("2250"), unit="ml")),
+        ("500 cc", PackageQuantity(amount=Decimal("500"), unit="ml")),
+        ("1 kg", PackageQuantity(amount=Decimal("1000"), unit="g")),
+        ("1000 g", PackageQuantity(amount=Decimal("1000"), unit="g")),
+        ("2 un", PackageQuantity(amount=Decimal("2"), unit="unit")),
+    ],
+)
+def test_equivalent_presentations_share_one_base_quantity(
+    value: str,
+    expected: PackageQuantity,
+) -> None:
+    assert extract_package_quantity(value) == expected
 
-    assert extract_package_quantity("2,25 Lt.") == expected
-    assert extract_package_quantity("2250cm3") == expected
-    assert extract_package_quantity("2250 ml") == expected
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Coca Cola 2.25 L Pack x2", 2),
+        ("Coca Cola 2.25 L pack por 2", 2),
+        ("Coca Cola 2.25 L x 2", 2),
+        ("Jabon tocador 2 un", 2),
+        ("Papel higienico 4 rollos", 4),
+        ("COCA COLA SABOR ORIGINAL X 2.25 LTS", None),
+        ("Fernet Branca x 750 cc", None),
+        ("Coca Cola 1 unidad", None),
+    ],
+)
+def test_extracts_pack_size_without_confusing_net_content(
+    value: str,
+    expected: int | None,
+) -> None:
+    assert extract_pack_size(value) == expected
+
+
+def test_product_matching_key_preserves_pack_size_as_discriminator() -> None:
+    single = product_matching_key("Coca Cola 2.25 L")
+    multipack = product_matching_key("Coca Cola 2.25 L Pack x2")
+
+    assert single != multipack
+    assert "pack=2" in multipack
+
+
+def test_original_is_compatible_but_sugar_free_variants_are_preserved() -> None:
+    original = build_product_identity("Coca Cola Original 2.25L")
+    sugar_free = build_product_identity("Coca Cola Sin Azúcar 2.25L")
+
+    assert "original" not in original.tokens
+    assert {"sin", "azucar"} <= sugar_free.tokens
 
 
 def test_matches_equivalent_name_brand_and_presentation() -> None:
@@ -59,6 +111,35 @@ def test_matches_equivalent_name_brand_and_presentation() -> None:
     assert match.confidence >= Decimal("0.900")
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Coca Cola Original 2.25L",
+        "Gaseosa Coca-Cola 2,25 Lt",
+        "COCA COLA SABOR ORIGINAL X 2.25 LTS",
+        "CocaCola 2250ml",
+    ],
+)
+def test_matches_common_coca_cola_equivalent_spellings(name: str) -> None:
+    candidate = _candidate(
+        "Coca Cola 2.25 L",
+        brand="Coca Cola",
+        unit="L",
+        content=Decimal("2.25"),
+    )
+
+    match = ProductIdentityMatcher().match(
+        name=name,
+        presentation=None,
+        brand=None,
+        candidates=[candidate],
+    )
+
+    assert match is not None
+    assert match.product.id == candidate.product.id
+    assert match.confidence >= Decimal("0.899")
+
+
 def test_does_not_match_different_size_brand_or_variant() -> None:
     coca = _candidate(
         "Coca Cola 2.25 L",
@@ -72,12 +153,42 @@ def test_does_not_match_different_size_brand_or_variant() -> None:
         unit="L",
         content=Decimal("2.25"),
     )
+    pack = _candidate(
+        "Coca Cola 2.25 L Pack x2",
+        brand="Coca Cola",
+        unit="L",
+        content=Decimal("2.25"),
+    )
+    sancor_milk = _candidate(
+        "Leche Entera Sancor 1L",
+        brand="Sancor",
+        unit="L",
+        content=Decimal("1"),
+    )
     matcher = ProductIdentityMatcher()
 
     assert (
         matcher.match(
             name="Coca Cola 2.5 L",
             presentation="2.5 L",
+            brand="Coca Cola",
+            candidates=[coca],
+        )
+        is None
+    )
+    assert (
+        matcher.match(
+            name="Coca Cola 2.25 L",
+            presentation="1.5 L",
+            brand="Coca Cola",
+            candidates=[coca],
+        )
+        is None
+    )
+    assert (
+        matcher.match(
+            name="Coca Cola 1.5 L",
+            presentation="1.5 L",
             brand="Coca Cola",
             candidates=[coca],
         )
@@ -98,6 +209,42 @@ def test_does_not_match_different_size_brand_or_variant() -> None:
             presentation="2.25 L",
             brand="Coca Cola",
             candidates=[coca],
+        )
+        is None
+    )
+    assert (
+        matcher.match(
+            name="Coca Cola Sin Azúcar 2.25 L",
+            presentation="2.25 L",
+            brand="Coca Cola",
+            candidates=[zero],
+        )
+        is None
+    )
+    assert (
+        matcher.match(
+            name="Coca Cola 2.25 L",
+            presentation="2.25 L",
+            brand="Coca Cola",
+            candidates=[pack],
+        )
+        is None
+    )
+    assert (
+        matcher.match(
+            name="Coca Cola 2.25 L Pack x2",
+            presentation="2.25 L",
+            brand="Coca Cola",
+            candidates=[coca],
+        )
+        is None
+    )
+    assert (
+        matcher.match(
+            name="Leche Entera La Serenisima 1L",
+            presentation="1 L",
+            brand="La Serenisima",
+            candidates=[sancor_milk],
         )
         is None
     )
