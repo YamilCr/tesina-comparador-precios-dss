@@ -13,6 +13,7 @@ from app.modules.ingestion.application.use_cases import (
     ClaimDueScrapingSchedulesUseCase,
     RunScrapingScheduleUseCase,
 )
+from app.modules.catalog.domain.ports import ProductSearchIndexPort
 from app.modules.ingestion.domain.entities import ScrapingSchedule, ScrapingSource
 from app.modules.ingestion.domain.ports import ScraperPort
 from app.modules.ingestion.infrastructure.scrapers import create_scraper_for_source
@@ -21,6 +22,7 @@ from app.shared.application import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 UnitOfWorkFactory = Callable[[], UnitOfWorkPort]
+ProductSearchIndexFactory = Callable[[], ProductSearchIndexPort | None]
 
 
 def _create_scheduled_scraper(
@@ -49,6 +51,7 @@ class ScrapingScheduler:
         scraper_factory: Callable[
             [ScrapingSource, ScrapingSchedule], ScraperPort
         ] = _create_scheduled_scraper,
+        product_search_index_factory: ProductSearchIndexFactory | None = None,
     ) -> None:
         if poll_seconds < 1 or batch_size < 1 or max_concurrency < 1:
             raise ValueError("Scheduler polling and concurrency values must be positive.")
@@ -60,6 +63,7 @@ class ScrapingScheduler:
         self._max_concurrency = max_concurrency
         self._lease_seconds = lease_seconds
         self._scraper_factory = scraper_factory
+        self._product_search_index_factory = product_search_index_factory
         self._stop_event = asyncio.Event()
         self._poll_lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
@@ -116,6 +120,11 @@ class ScrapingScheduler:
                 return await RunScrapingScheduleUseCase(
                     self._unit_of_work_factory(),
                     self._scraper_factory,
+                    product_search_index=(
+                        self._product_search_index_factory()
+                        if self._product_search_index_factory is not None
+                        else None
+                    ),
                 ).execute(
                     schedule.id,
                     scheduled_for=schedule.next_run_at,

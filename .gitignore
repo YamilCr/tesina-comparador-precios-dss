@@ -15,6 +15,7 @@ frontend/.env.*
 backend/**/*.pyc
 backend/**/__pycache__/
 backend/.pytest_cache/
+backend/.chroma/
 backend/*.egg-info/
 backend/reports/
 

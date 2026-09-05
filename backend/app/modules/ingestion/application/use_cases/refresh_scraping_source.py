@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from uuid import UUID
 
+from app.modules.catalog.domain.ports import ProductSearchIndexPort
 from app.modules.ingestion.application.dto import ScrapingRefreshDTO, ScrapingRunDTO
 from app.modules.ingestion.domain.entities import ScrapingSource
 from app.modules.ingestion.domain.ports import ScraperPort
@@ -19,16 +20,21 @@ class RefreshScrapingSourceUseCase:
         self,
         unit_of_work: UnitOfWorkPort,
         scraper_factory: Callable[[ScrapingSource], ScraperPort],
+        product_search_index: ProductSearchIndexPort | None = None,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._scraper_factory = scraper_factory
+        self._product_search_index = product_search_index
 
     async def execute(self, source_id: UUID) -> ScrapingRefreshDTO:
         extraction = await ExecuteScrapingRunUseCase(
             self._unit_of_work,
             self._scraper_factory,
         ).execute(source_id)
-        load = await LoadScrapingRunUseCase(self._unit_of_work).execute(extraction.run.id)
+        load = await LoadScrapingRunUseCase(
+            self._unit_of_work,
+            self._product_search_index,
+        ).execute(extraction.run.id)
         async with self._unit_of_work as uow:
             run = await uow.ingestion.get_run_by_id(extraction.run.id)
         if run is None:

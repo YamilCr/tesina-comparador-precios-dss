@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy.exc import OperationalError
 
+from app.dependencies import get_product_search_index
 from app.modules.ingestion.application.use_cases import LoadScrapingRunUseCase
 from app.shared.infrastructure import SQLAlchemyUnitOfWork, async_session_factory
 
@@ -30,7 +31,10 @@ def parse_args() -> argparse.Namespace:
 
 async def main() -> None:
     args = parse_args()
-    use_case = LoadScrapingRunUseCase(SQLAlchemyUnitOfWork(async_session_factory))
+    use_case = LoadScrapingRunUseCase(
+        SQLAlchemyUnitOfWork(async_session_factory),
+        get_product_search_index(),
+    )
     try:
         result = await use_case.execute(
             args.run_id,

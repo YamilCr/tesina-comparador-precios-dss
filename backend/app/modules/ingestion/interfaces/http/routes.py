@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.dependencies import SettingsDependency, get_unit_of_work
+from app.dependencies import ProductSearchIndexDependency, SettingsDependency, get_unit_of_work
 from app.modules.ingestion.application.commands import (
     CompleteScrapingRunCommand,
     CreateScrapingScheduleCommand,
@@ -314,6 +314,7 @@ async def run_scraping_schedule_now(
     schedule_id: UUID,
     uow: UnitOfWorkDependency,
     settings: SettingsDependency,
+    search_index: ProductSearchIndexDependency,
 ) -> dict:
     now = datetime.now(timezone.utc)
     try:
@@ -330,6 +331,7 @@ async def run_scraping_schedule_now(
                 city=plan.city,
                 result_limit=plan.result_limit,
             ),
+            product_search_index=search_index,
         ).execute(schedule.id, scheduled_for=now)
     except ValueError as error:
         _raise_ingestion_error(error)
@@ -365,6 +367,7 @@ async def refresh_scraping_source(
     source_id: UUID,
     request: RefreshScrapingSourceRequest,
     uow: UnitOfWorkDependency,
+    search_index: ProductSearchIndexDependency,
 ) -> dict:
     """Runs a bounded external extraction and loads its validated price history."""
 
@@ -377,7 +380,11 @@ async def refresh_scraping_source(
         )
 
     try:
-        refresh = await RefreshScrapingSourceUseCase(uow, create_scraper).execute(source_id)
+        refresh = await RefreshScrapingSourceUseCase(
+            uow,
+            create_scraper,
+            search_index,
+        ).execute(source_id)
     except ValueError as error:
         _raise_ingestion_error(error)
     except RuntimeError as error:
@@ -392,6 +399,7 @@ async def refresh_scraping_source(
 async def refresh_scraping_sources_concurrently(
     request: ConcurrentRefreshScrapingSourcesRequest,
     uow: UnitOfWorkDependency,
+    search_index: ProductSearchIndexDependency,
 ) -> dict:
     """Extracts several configured sources concurrently and persists each ETL result serially."""
 
@@ -409,6 +417,7 @@ async def refresh_scraping_sources_concurrently(
             create_scraper,
             max_concurrency=request.max_concurrency,
             timeout_seconds=request.timeout_seconds,
+            product_search_index=search_index,
         ).execute(request.source_ids)
     except ValueError as error:
         _raise_ingestion_error(error)

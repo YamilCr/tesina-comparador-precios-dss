@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from uuid import UUID
 
+from app.modules.catalog.domain.ports import ProductSearchIndexPort
 from app.modules.ingestion.application.commands import (
     CompleteScrapingRunCommand,
     FailScrapingRunCommand,
@@ -53,6 +54,7 @@ class ConcurrentRefreshScrapingSourcesUseCase:
         *,
         max_concurrency: int = 3,
         timeout_seconds: int = 20,
+        product_search_index: ProductSearchIndexPort | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("Max concurrency must be at least one.")
@@ -62,6 +64,7 @@ class ConcurrentRefreshScrapingSourcesUseCase:
         self._scraper_factory = scraper_factory
         self._max_concurrency = max_concurrency
         self._timeout_seconds = timeout_seconds
+        self._product_search_index = product_search_index
 
     async def execute(self, source_ids: list[UUID]) -> ConcurrentScrapingRefreshDTO:
         unique_source_ids = list(dict.fromkeys(source_ids))
@@ -153,7 +156,10 @@ class ConcurrentRefreshScrapingSourcesUseCase:
                     items_loaded=0,
                 )
             )
-            load = await LoadScrapingRunUseCase(self._unit_of_work).execute(outcome.started.run.id)
+            load = await LoadScrapingRunUseCase(
+                self._unit_of_work,
+                self._product_search_index,
+            ).execute(outcome.started.run.id)
             async with self._unit_of_work as uow:
                 completed_run = await uow.ingestion.get_run_by_id(outcome.started.run.id)
             if completed_run is None:

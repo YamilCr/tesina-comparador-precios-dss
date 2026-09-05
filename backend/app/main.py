@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api_v1 import router as api_v1_router
 from app.config import get_settings
+from app.dependencies import get_product_search_index
 from app.modules.ingestion.infrastructure.scheduler import ScrapingScheduler
 from app.shared.infrastructure.database import async_session_factory
 from app.shared.infrastructure.sqlalchemy_unit_of_work import SQLAlchemyUnitOfWork
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
             batch_size=settings.ingestion_scheduler_batch_size,
             max_concurrency=settings.ingestion_scheduler_max_concurrency,
             lease_seconds=settings.ingestion_scheduler_lease_seconds,
+            product_search_index_factory=get_product_search_index,
         )
         app.state.ingestion_scheduler = scheduler
         await scheduler.start()

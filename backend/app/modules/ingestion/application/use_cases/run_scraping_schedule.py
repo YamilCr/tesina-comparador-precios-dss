@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+from app.modules.catalog.domain.ports import ProductSearchIndexPort
 from app.modules.ingestion.application.dto import ScheduledRefreshExecutionDTO
 from app.modules.ingestion.domain.entities import (
     ScheduledRefreshExecution,
@@ -28,10 +29,12 @@ class RunScrapingScheduleUseCase:
         unit_of_work: UnitOfWorkPort,
         scraper_factory: Callable[[ScrapingSource, ScrapingSchedule], ScraperPort],
         now_provider: Callable[[], datetime] = _utc_now,
+        product_search_index: ProductSearchIndexPort | None = None,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._scraper_factory = scraper_factory
         self._now_provider = now_provider
+        self._product_search_index = product_search_index
 
     async def execute(
         self,
@@ -59,6 +62,7 @@ class RunScrapingScheduleUseCase:
                 lambda source: self._scraper_factory(source, schedule),
                 max_concurrency=1,
                 timeout_seconds=schedule.timeout_seconds,
+                product_search_index=self._product_search_index,
             ).execute([schedule.scraping_source_id])
             result = refresh.results[0]
             scraping_run_id = result.run.id
@@ -97,4 +101,3 @@ class RunScrapingScheduleUseCase:
     @staticmethod
     def _format_error(error: Exception) -> str:
         return (str(error).strip() or error.__class__.__name__)[:2000]
-

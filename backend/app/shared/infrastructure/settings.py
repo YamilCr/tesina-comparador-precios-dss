@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     ingestion_scheduler_batch_size: int = Field(default=10, ge=1, le=100)
     ingestion_scheduler_max_concurrency: int = Field(default=3, ge=1, le=10)
     ingestion_scheduler_lease_seconds: int = Field(default=900, ge=60, le=7200)
+    vector_search_enabled: bool = True
+    vector_store_path: Path = Path("./.chroma/product_search")
+    vector_collection: str = "product_search_v1"
+    vector_embedding_model: str = "intfloat/multilingual-e5-small"
+    vector_search_min_score: float = Field(default=0.35, ge=0.0, le=1.0)
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",
@@ -43,6 +48,14 @@ class Settings(BaseSettings):
             return database_url
 
         return f"{SQLITE_ASYNC_PREFIX}{(BACKEND_ROOT / database_path).resolve().as_posix()}"
+
+    @field_validator("vector_store_path")
+    @classmethod
+    def resolve_relative_vector_store_path(cls, vector_store_path: Path) -> Path:
+        """Keeps local vector files under backend when configured with a relative path."""
+        if vector_store_path.is_absolute():
+            return vector_store_path
+        return (BACKEND_ROOT / vector_store_path).resolve()
 
 
 @lru_cache

@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
-from app.dependencies import get_unit_of_work
+from app.dependencies import get_product_search_index, get_unit_of_work
 from app.main import app
 from app.modules.catalog.domain.entities import Brand, Product, ProductCategory, ProductSource
 from app.modules.prices.domain.entities import Price
@@ -167,6 +167,18 @@ class FakeProductRepository:
     async def list_active(self, limit: int = 100, offset: int = 0) -> list[Product]:
         products = [product for product in self._products if product.active]
         return products[offset : offset + limit]
+
+    async def list_active_by_ids(self, product_ids: list[UUID]) -> list[Product]:
+        products_by_id = {
+            product.id: product
+            for product in self._products
+            if product.active
+        }
+        return [
+            products_by_id[product_id]
+            for product_id in dict.fromkeys(product_ids)
+            if product_id in products_by_id
+        ]
 
 
 class FakeProductSourceRepository:
@@ -459,6 +471,7 @@ class FakeUnitOfWork:
 def _install_fake_unit_of_work() -> None:
     """Instala el override de dependencia para endpoints que usan UoW."""
     app.dependency_overrides[get_unit_of_work] = FakeUnitOfWork
+    app.dependency_overrides[get_product_search_index] = lambda: None
 
 
 def _clear_overrides() -> None:

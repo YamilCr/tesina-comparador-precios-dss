@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import get_unit_of_work
+from app.dependencies import ProductSearchIndexDependency, SettingsDependency, get_unit_of_work
 from app.modules.catalog.application.commands import ProductListQuery, ProductSearchQuery
 from app.modules.catalog.application.use_cases import (
     ListActiveCategoriesUseCase,
@@ -51,6 +51,8 @@ async def _product_display_names(
 @router.get("/products")
 async def list_products(
     uow: UnitOfWorkDependency,
+    settings: SettingsDependency,
+    search_index: ProductSearchIndexDependency,
     q: str | None = Query(default=None, max_length=120),
     category_id: UUID | None = None,
     page: int = Query(default=1, ge=1),
@@ -58,15 +60,21 @@ async def list_products(
 ) -> dict:
     """Busca o lista productos activos del catálogo."""
     if q and q.strip():
-        products = await SearchProductsUseCase(uow).execute(
-            ProductSearchQuery(query=q, limit=page_size)
+        products = await SearchProductsUseCase(
+            uow,
+            search_index,
+            vector_search_enabled=settings.vector_search_enabled,
+            vector_search_min_score=settings.vector_search_min_score,
+        ).execute(
+            ProductSearchQuery(query=q, limit=page_size),
+            category_id=category_id,
         )
     else:
         products = await ListActiveProductsUseCase(uow).execute(
             ProductListQuery(limit=page_size, offset=(page - 1) * page_size)
         )
 
-    if category_id is not None:
+    if category_id is not None and not (q and q.strip()):
         products = [product for product in products if product.category_id == category_id]
 
     category_names, brand_names = await _product_display_names(uow, products)

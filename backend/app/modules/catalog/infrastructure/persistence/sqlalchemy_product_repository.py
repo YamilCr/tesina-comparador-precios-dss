@@ -57,6 +57,24 @@ class SQLAlchemyProductRepository(ProductRepositoryPort):
         )
         return [product_model_to_entity(model) for model in models.all()]
 
+    async def list_active_by_ids(self, product_ids: list[UUID]) -> list[Product]:
+        """Lista productos activos por ids y conserva el orden recibido."""
+        ordered_ids = list(dict.fromkeys(product_ids))
+        if not ordered_ids:
+            return []
+        models = await self._session.scalars(
+            select(ProductModel).where(
+                ProductModel.activo.is_(True),
+                ProductModel.id.in_(ordered_ids),
+            )
+        )
+        products_by_id = {model.id: product_model_to_entity(model) for model in models.all()}
+        return [
+            products_by_id[product_id]
+            for product_id in ordered_ids
+            if product_id in products_by_id
+        ]
+
     async def save(self, product: Product) -> Product:
         """Crea o actualiza un producto sin confirmar la transacción."""
         model = await self._session.get(ProductModel, product.id)

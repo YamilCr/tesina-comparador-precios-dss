@@ -26,5 +26,9 @@ class ProductRepositoryPort(ABC):
         """Lista productos activos usando paginación básica."""
 
     @abstractmethod
+    async def list_active_by_ids(self, product_ids: list[UUID]) -> list[Product]:
+        """Lista productos activos por identificador preservando el orden pedido."""
+
+    @abstractmethod
     async def save(self, product: Product) -> Product:
         """Guarda un producto y devuelve su representación de dominio."""

@@ -3,11 +3,21 @@
 from .brand_repository_port import BrandRepositoryPort
 from .product_category_repository_port import ProductCategoryRepositoryPort
 from .product_repository_port import ProductRepositoryPort
+from .product_search_index_port import (
+    ProductSearchHit,
+    ProductSearchIndexEntry,
+    ProductSearchIndexPort,
+    SearchMetadataValue,
+)
 from .product_source_repository_port import ProductSourceRepositoryPort
 
 __all__ = [
     "BrandRepositoryPort",
     "ProductCategoryRepositoryPort",
     "ProductRepositoryPort",
+    "ProductSearchHit",
+    "ProductSearchIndexEntry",
+    "ProductSearchIndexPort",
     "ProductSourceRepositoryPort",
+    "SearchMetadataValue",
 ]

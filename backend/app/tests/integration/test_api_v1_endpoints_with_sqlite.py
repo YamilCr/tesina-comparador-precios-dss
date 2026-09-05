@@ -7,6 +7,10 @@ from typing import Any
 
 import pytest
 
+from app.dependencies import get_product_search_index
+from app.main import app
+from app.modules.catalog.domain.ports import ProductSearchHit
+
 from .conftest import ASGIResponse, IntegrationSeedData
 
 
@@ -53,6 +57,30 @@ async def test_catalog_and_reference_endpoints_use_real_sqlite_data(
         str(seed_data.la_branch_id),
         str(seed_data.carrefour_branch_id),
     }
+
+
+@pytest.mark.asyncio
+async def test_catalog_product_search_uses_semantic_candidates_as_discovery(
+    sqlite_uow_override: None,
+    asgi_request: Callable[..., Any],
+    seed_data: IntegrationSeedData,
+) -> None:
+    """Verifica que el endpoint fusione candidatos semánticos sin cambiar el contrato."""
+    app.dependency_overrides[get_product_search_index] = lambda: _FakeSearchIndex(
+        [ProductSearchHit(seed_data.coca_product_id, 0.84)]
+    )
+
+    response: ASGIResponse = await asgi_request(
+        "GET",
+        "/api/v1/catalog/products",
+        query={"q": "cocacola"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pagination"]["count"] == 1
+    assert payload["items"][0]["id"] == str(seed_data.coca_product_id)
+    assert "semantic_score" not in payload["items"][0]
 
 
 @pytest.mark.asyncio
@@ -161,3 +189,11 @@ async def test_ranking_endpoint_uses_real_sqlite_seed(
     assert payload["quality"]["eligible_price_count"] == 4
     assert [item["position"] for item in payload["ranking"]] == [1, 2]
     assert {item["total_cost"] for item in payload["ranking"]} == {"4050.00", "4000.00"}
+
+
+class _FakeSearchIndex:
+    def __init__(self, hits: list[ProductSearchHit]) -> None:
+        self._hits = hits
+
+    async def search(self, query: str, top_k: int) -> list[ProductSearchHit]:
+        return self._hits[:top_k]

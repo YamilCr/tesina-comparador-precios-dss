@@ -1,11 +1,14 @@
 """Loads validated staged extraction records into the catalog and price history."""
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from app.modules.catalog.domain.entities import Product, ProductSource
+from app.modules.catalog.application.services import build_product_search_entry
+from app.modules.catalog.domain.ports import ProductSearchIndexEntry, ProductSearchIndexPort
 from app.modules.ingestion.application.dto import EtlLoadResultDTO
 from app.modules.ingestion.domain.entities import ScrapedProduct
 from app.modules.ingestion.infrastructure.etl import (
@@ -21,12 +24,19 @@ from app.modules.ingestion.infrastructure.etl import (
 from app.modules.prices.domain.entities import Price
 from app.shared.application import UnitOfWorkPort
 
+logger = logging.getLogger(__name__)
+
 
 class LoadScrapingRunUseCase:
     """Applies quality checks, canonical identity matching and idempotent history loading."""
 
-    def __init__(self, unit_of_work: UnitOfWorkPort) -> None:
+    def __init__(
+        self,
+        unit_of_work: UnitOfWorkPort,
+        product_search_index: ProductSearchIndexPort | None = None,
+    ) -> None:
         self._unit_of_work = unit_of_work
+        self._product_search_index = product_search_index
 
     async def execute(
         self,
@@ -36,6 +46,7 @@ class LoadScrapingRunUseCase:
         create_missing_products: bool = True,
     ) -> EtlLoadResultDTO:
         processed_at = datetime.now(timezone.utc)
+        created_search_entries: list[ProductSearchIndexEntry] = []
         async with self._unit_of_work as uow:
             run = await uow.ingestion.get_run_by_id(run_id)
             if run is None:
@@ -133,6 +144,9 @@ class LoadScrapingRunUseCase:
                             )
                         )
                         catalog.add_product(product, brand_name=brand_name)
+                        created_search_entries.append(
+                            build_product_search_entry(product, brand_name=brand_name)
+                        )
                         result.created_products += 1
                         confidence = Decimal("1.000")
                     product_source = ProductSource(
@@ -178,7 +192,22 @@ class LoadScrapingRunUseCase:
             run.record_loaded_items(loaded_before + result.loaded)
             await uow.ingestion.save_run(run)
             await uow.commit()
+        await self._upsert_created_product_vectors(created_search_entries)
         return result.to_dto()
+
+    async def _upsert_created_product_vectors(
+        self,
+        entries: list[ProductSearchIndexEntry],
+    ) -> None:
+        if self._product_search_index is None or not entries:
+            return
+        try:
+            await self._product_search_index.upsert_products(entries)
+        except Exception:
+            logger.warning(
+                "Product search vector upsert failed after ETL load; rebuild can repair it.",
+                exc_info=True,
+            )
 
     @staticmethod
     async def _resolve_product(
