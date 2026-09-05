@@ -1,0 +1,37 @@
+case_id,source_name,presentation,source_brand,expected_internal_code,case_group,notes
+M001,Coca Cola 2.25 L,2.25 L,Coca Cola,COCA_ORIGINAL_225,exact,Nombre canonico
+M002,Coca-Cola 2250 ml,2250 ml,Coca Cola,COCA_ORIGINAL_225,equivalent_unit,Unidad equivalente
+M003,Gaseosa Coca-Cola sabor original descartable 2250cm3,2250 cm3,Coca Cola,COCA_ORIGINAL_225,descriptor,Descriptores del proveedor
+M004,Coca Cola Zero 2.25 L,2.25 L,Coca Cola,COCA_ZERO_225,variant,Variante zero
+M005,Coca-Cola sin azucar 2250 ml,2250 ml,Coca Cola,COCA_ZERO_225,alias_variant,Alias semantico dificil
+M006,Leche Entera 1 L,1 L,La Serenisima,LECHE_ENTERA_1L,exact,Nombre canonico
+M007,Leche entera La Serenisima 1000 ml,1000 ml,La Serenisima,LECHE_ENTERA_1L,equivalent_unit,Marca incluida
+M008,Leche Descremada 1 L,1 L,La Serenisima,LECHE_DESCREMADA_1L,variant,Variante descremada
+M009,Leche parcialmente descremada 1000 ml,1000 ml,La Serenisima,LECHE_DESCREMADA_1L,descriptor,Descriptor adicional
+M010,Arroz Largo Fino 1 Kg,1 kg,Marolio,ARROZ_LARGO_1KG,exact,Nombre canonico
+M011,Arroz largo fino Marolio 1000 g,1000 g,Marolio,ARROZ_LARGO_1KG,equivalent_unit,Unidad equivalente
+M012,Aceite de Girasol 900 Ml,900 ml,Natura,ACEITE_GIRASOL_900,exact,Nombre equivalente
+M013,Aceite Natura girasol 900 cc,900 cc,Natura,ACEITE_GIRASOL_900,equivalent_unit,Unidad equivalente
+M014,Fernet Branca 750 Ml,750 ml,Branca,FERNET_750,exact,Marca incluida
+M015,Fernet 0.75 L,0.75 L,Branca,FERNET_750,equivalent_unit,Volumen decimal
+M016,Aperitivo Americano Gancia 950 Ml,950 ml,Gancia,GANCIA_950,exact,Marca incluida
+M017,Gancia Americano 950 cc,950 cc,Gancia,GANCIA_950,equivalent_unit,Orden alternativo
+M018,Lavandina Ayudin 1 L,1 L,Ayudin,LAVANDINA_1L,exact,Marca incluida
+M019,Lavandina 1000 cm3,1000 cm3,Ayudin,LAVANDINA_1L,equivalent_unit,Unidad equivalente
+M020,Papel Higienico Elite 4 Rollos,4 rollos,Elite,PAPEL_ELITE_4,exact,Marca incluida
+M021,Papel higienico 4 unidades,4 unidades,Elite,PAPEL_ELITE_4,equivalent_unit,Unidad de paquete
+M022,Coca Cola 2.5 L,2.5 L,Coca Cola,,different_size,Tamano distinto
+M023,Coca Cola Zero 2.25 L,2.25 L,Pepsi,,different_brand,Marca incompatible
+M024,Coca Cola Original 2.25 L,2.25 L,Coca Cola,COCA_ORIGINAL_225,variant_guard,No debe confundirse con zero
+M025,Leche Entera 1 L,1 L,Ilolay,,different_brand,Marca incompatible
+M026,Leche Descremada 500 Ml,500 ml,La Serenisima,,different_size,Tamano distinto
+M027,Arroz Integral 1 Kg,1 kg,Marolio,,different_variant,Variante distinta
+M028,Aceite Mezcla 900 Ml,900 ml,Natura,,different_variant,Tipo distinto
+M029,Fernet Branca 1 L,1 L,Branca,,different_size,Tamano distinto
+M030,Gancia Americano 1.25 L,1.25 L,Gancia,,different_size,Tamano distinto
+M031,Lavandina Ayudin 2 L,2 L,Ayudin,,different_size,Tamano distinto
+M032,Papel Higienico Elite 6 Rollos,6 rollos,Elite,,different_size,Cantidad distinta
+M033,Detergente Limon 750 Ml,750 ml,Magistral,,unrelated,Producto fuera del catalogo
+M034,Coca Cola lata 354 Ml,354 ml,Coca Cola,,different_size,Presentacion distinta
+M035,Leche Entera sin lactosa 1 L,1 L,La Serenisima,,different_variant,Variante distinta
+M036,Arroz Largo Fino 1 Kg,1 kg,Gallo,,different_brand,Marca incompatible

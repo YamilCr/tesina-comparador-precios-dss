@@ -1,6 +1,6 @@
 # Matriz de alineación entre tesis y código
 
-Fecha de revisión: 24 de agosto de 2026.
+Fecha de revisión: 26 de agosto de 2026.
 
 Esta matriz acompaña a `capitulo-desarrollo-secciones-alineadas.tex`. El archivo
 LaTeX contiene los reemplazos listos para incorporar al capítulo; esta guía deja
@@ -10,7 +10,7 @@ trazabilidad de por qué se modificó cada afirmación.
 | --- | --- | --- | --- |
 | Base de datos | PostgreSQL implementado como base operativa | La demo y las pruebas funcionan con SQLite; PostgreSQL está soportado por configuración y drivers | SQLite se declara como base validada y PostgreSQL como destino pendiente de validación integral |
 | Scraping HTTP | Requests, Beautiful Soup y httpx | Los adaptadores reales usan `aiohttp` | Se reemplazó la lista por `aiohttp` y Playwright |
-| Fuentes | Scraping descrito de forma genérica | Existen Carrefour, Jumbo, La Coope y La Anónima | Se documentó la estrategia real de cada adaptador |
+| Fuentes | Scraping descrito de forma genérica | Existen Carrefour, Chango Más, Jumbo, La Coope, La Anónima y Maxiconsumo | Se documentó la estrategia real de cada adaptador |
 | API | Rutas `/api/products`, `/api/prices`, `/api/ranking` | La API usa prefijo `/api/v1` y rutas modulares | Se reemplazó la tabla por los endpoints reales |
 | Concurrencia | Workers genéricos con navegadores independientes | `TaskGroup`, `Semaphore`, `Queue`, timeout y un Chromium con contextos/páginas reutilizables | Se describió el modelo exacto y sus límites |
 | Paralelismo | El título podía sugerir procesamiento CPU paralelo | No existe `ProcessPoolExecutor` ni cálculo CPU en procesos | Se aclaró que el sistema adopta concurrencia I/O y deja el paralelismo CPU como optimización futura |
@@ -22,6 +22,7 @@ trazabilidad de por qué se modificó cada afirmación.
 | Mapas | Figuraban como implementados | Leaflet representa origen, ranking y sucursales incompletas sobre OpenStreetMap | Se documentó el componente real y su alcance |
 | Coordenadas | No existía trazabilidad de verificación | La migración `0008` registra estado, fuente y fecha; el ranking excluye puntos no verificados | Se agregó la regla de elegibilidad geográfica y su auditoría |
 | Actualización | Se afirmaba actualización automática | Scheduler persistente configurable, leases, historial y reintentos sobre el flujo ETL real | La afirmación queda respaldada por la migración `0009`, API y worker FastAPI |
+| Validación experimental | No existía evidencia integral reproducible | Benchmark de cuatro cadenas, cobertura por cadena, ground truth de matching y barrido completo de pesos | Se agregaron datasets, scripts, CSV, resumen JSON e informe metodológico |
 | Alcance | Sistema presentado como solución terminada | Demo integrada para una ciudad y fuentes piloto | Se agregó una subsección explícita de alcance y limitaciones |
 
 ## Evidencia del repositorio
@@ -33,7 +34,8 @@ trazabilidad de por qué se modificó cada afirmación.
 - ETL en `load_scraping_run.py` y `infrastructure/etl/`.
 - Migraciones `0001` a `0009` en `backend/migrations/versions/`.
 - Benchmark real en
-  `backend/reports/tesis_benchmark_carrefour_coope_laanonima_20260815_final.csv`.
+  `backend/reports/tesis_benchmark_4_cadenas_20260826.csv` y detalle por fuente.
+- Paquete de validación en `backend/reports/experimental_validation_20260826/`.
 - Política de calidad en `price_quality_policy.py`.
 - Ranking DSS en `decision/application/use_cases/generate_ranking.py`.
 - Frontend integrado en `frontend/src/views/CompareView.vue`.
@@ -41,11 +43,11 @@ trazabilidad de por qué se modificó cada afirmación.
 
 ## Estado verificado
 
-- 75 pruebas del backend aprobadas.
+- 87 pruebas del backend aprobadas.
 - 2 pruebas del frontend aprobadas.
 - Build de producción del frontend aprobado.
 - SQLite en migración `0009` (`head`).
-- Cuatro fuentes activas de scraping en la base de demostración.
+- Seis fuentes activas de scraping en la base de demostración.
 - 21 sucursales de demostración, distribuidas en siete cadenas y dos ciudades,
   con coordenadas verificadas y auditables.
 

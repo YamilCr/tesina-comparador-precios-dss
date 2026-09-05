@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from 'lucide-vue-next'
 
-const supermarkets = ['La Anónima', 'Carrefour', 'Chango Más', 'Jumbo']
+const supermarkets = ['La Anónima', 'Carrefour', 'Chango Más', 'Jumbo', 'Maxiconsumo']
 
 const basketPreview = ['Coca Cola 2.25 L', 'Leche Entera 1 L', 'Arroz Largo Fino 1 Kg']
 

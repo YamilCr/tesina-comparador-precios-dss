@@ -41,7 +41,7 @@ Incluido:
 - Ranking DSS en memoria.
 - Seed inicial para datos de prueba.
 - Auditoria minima de ingestion con `scraping_source` y `scraping_run`.
-- Scrapers piloto para Carrefour, Jumbo, La Coope y La Anonima.
+- Scrapers piloto para Carrefour, Chango Mas, Jumbo, La Coope, La Anonima y Maxiconsumo.
 - ETL auditable con staging, deduplicacion, normalizacion e historial idempotente.
 - Identidad canonica conservadora y revision asistida.
 - Actualizacion concurrente bajo demanda y benchmark reproducible.
@@ -67,7 +67,8 @@ Excluido por ahora:
 - Administracion de fuentes y corridas de ingestion: completo mediante API v1.
 - Puertos, repositorios SQLAlchemy, Unit of Work, seed y ranking DSS: completo para el core.
 - Endpoints minimos v1: completo.
-- Scrapers reales limitados para Carrefour, Jumbo, La Coope y La Anonima, con
+- Scrapers reales limitados para Carrefour, Chango Mas, Jumbo, La Coope, La Anonima y
+  Maxiconsumo, con
   auditoria automatica: completo como piloto.
 - ETL de staging, calidad, deduplicacion, identidad canonica y carga idempotente de historial: completo.
 - Validacion de ubicacion y sucursal: mecanismo de confirmacion implementado
@@ -287,7 +288,8 @@ La base ya incluye tablas de auditoria para ingestion:
 - `scraping_run`: ejecucion de scraping, estado, contadores y errores.
 
 El piloto incluye adaptadores HTTP reales para los catalogos publicos de Carrefour,
-Jumbo y La Coope en Casa, mas un adaptador Playwright para La Anonima. La clave
+Chango Mas, Jumbo, La Coope en Casa y Maxiconsumo, mas un adaptador Playwright para
+La Anonima. La clave
 `scraper_key` queda asociada a la fuente configurada,
 por lo que el flujo no acepta un selector manual que pueda contradecirla. Cada
 adaptador resuelve consultas en paralelo, con un maximo de tres solicitudes HTTP
@@ -325,15 +327,28 @@ Antes de pasar a staging, el piloto de La Coope exige que todos los terminos
 significativos de la consulta aparezcan en el nombre o la marca. Esto evita que
 la busqueda amplia del proveedor cargue articulos ajenos a la frase solicitada.
 
+Chango Mas usa la API publica VTEX de Mas Online. El adaptador crea una sesion
+de checkout, confirma el codigo postal `9000`, reutiliza el canal de venta resuelto
+y conserva solo ofertas con precio y stock positivos. La auditoria marca estos
+resultados con `price_basis=online_delivery_postal_code_9000`. Esa confirmacion
+demuestra cobertura de entrega en Comodoro, no inventario de una tienda fisica;
+la asociacion con `Hiper - Enrique Girolamo` es el destino configurado del piloto.
+
+Maxiconsumo se extrae como HTML estatico porque su pagina Magento entrega las
+tarjetas completas sin ejecutar JavaScript. La URL base identifica la sucursal de
+Comodoro Rivadavia y el adaptador rechaza otras ciudades. El importe auditado es
+el `Precio unitario por bulto cerrado` publicado por el sitio; el payload conserva
+`price_basis=unit_price_closed_case` para no confundirlo con el precio minorista.
+
 ## Geografia y mapa
 
 La migracion `0008` agrega a `sucursal` la marca
 `coordenadas_verificadas`, la fuente consultada y la fecha de verificacion. El
 seed actualiza de forma idempotente las direcciones y puntos del piloto para
 21 sucursales de Carrefour, Jumbo, La Anonima, La Coope, Chango Mas,
-Maxiconsumo y Diarco en Comodoro Rivadavia y Rada Tilly. Maxiconsumo y Diarco
-solo tienen catalogo geografico por el momento; no se les asigna una fuente de
-scraping hasta implementar sus adaptadores. Una sucursal sin la marca de
+Maxiconsumo y Diarco en Comodoro Rivadavia y Rada Tilly. Diarco solo tiene
+catalogo geografico por el momento; Maxiconsumo ya posee una fuente estatica
+asociada a su sucursal de Comodoro. Una sucursal sin la marca de
 verificacion puede seguir existiendo para administracion, pero el caso de uso
 de ranking no calcula distancias ni la recomienda.
 
@@ -625,14 +640,33 @@ al menos dos fuentes activas que tengan una sucursal destino configurada:
 uv run python scripts/benchmark_scraping_concurrency.py `
   --source-id <UUID_FUENTE_1> `
   --source-id <UUID_FUENTE_2> `
+  --source-id <UUID_FUENTE_3> `
+  --source-id <UUID_FUENTE_4> `
   --query "coca cola" `
   --query "leche" `
-  --repetitions 3 `
-  --max-concurrency 2
+  --repetitions 5 `
+  --warmups 1 `
+  --max-concurrency 4
 ```
 
 El protocolo, las variables registradas y la interpretacion de resultados estan
 en [docs/experimento-concurrencia.md](../docs/experimento-concurrencia.md).
+
+## Validacion experimental
+
+El paquete integral analiza el benchmark, calcula cobertura por cadena desde la
+base, evalua el matcher contra un ground truth versionado y recorre el simplex de
+pesos del DSS:
+
+```powershell
+uv run python scripts/run_experimental_validation.py `
+  --benchmark-csv reports/tesis_benchmark_4_cadenas_20260826.csv `
+  --output-dir reports/experimental_validation_20260826
+```
+
+Genera CSV detallados, resumen JSON e informe Markdown. La metodologia,
+resultados y amenazas de validez estan en
+[docs/validacion-experimental.md](../docs/validacion-experimental.md).
 
 ## Pruebas
 

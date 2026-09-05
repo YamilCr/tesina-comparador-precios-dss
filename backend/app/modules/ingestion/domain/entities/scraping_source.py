@@ -5,7 +5,17 @@ from datetime import datetime
 from uuid import UUID
 
 
-SCRAPER_KEYS = frozenset({"carrefour", "coope", "jumbo", "la_anonima", "playwright"})
+SCRAPER_KEYS = frozenset(
+    {
+        "carrefour",
+        "changomas",
+        "coope",
+        "jumbo",
+        "la_anonima",
+        "maxiconsumo",
+        "playwright",
+    }
+)
 
 
 @dataclass

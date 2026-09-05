@@ -11,7 +11,9 @@ class CreateScrapingSourceRequest(BaseModel):
     supermarket_id: UUID
     name: str = Field(min_length=1, max_length=255)
     base_url: str = Field(min_length=1, max_length=2048)
-    scraper_key: Literal["carrefour", "coope", "jumbo", "la_anonima", "playwright"] = "jumbo"
+    scraper_key: Literal[
+        "carrefour", "changomas", "coope", "jumbo", "la_anonima", "maxiconsumo", "playwright"
+    ] = "jumbo"
     branch_id: UUID | None = None
     active: bool = True
 
@@ -19,7 +21,9 @@ class CreateScrapingSourceRequest(BaseModel):
 class UpdateScrapingSourceRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     base_url: str | None = Field(default=None, min_length=1, max_length=2048)
-    scraper_key: Literal["carrefour", "coope", "jumbo", "la_anonima", "playwright"] | None = None
+    scraper_key: Literal[
+        "carrefour", "changomas", "coope", "jumbo", "la_anonima", "maxiconsumo", "playwright"
+    ] | None = None
     branch_id: UUID | None = None
     active: bool | None = None
 

@@ -52,6 +52,13 @@ SUPERMARKETS = (
 
 SCRAPING_SOURCES = (
     {
+        "supermarket": "Chango Más",
+        "name": "Chango Mas Comodoro VTEX catalog pilot",
+        "base_url": "https://www.masonline.com.ar",
+        "scraper_key": "changomas",
+        "branch_key": "changomas_comodoro",
+    },
+    {
         "supermarket": "Carrefour",
         "name": "Carrefour public catalog pilot",
         "base_url": "https://www.carrefour.com.ar",
@@ -78,6 +85,13 @@ SCRAPING_SOURCES = (
         "base_url": "https://api.lacoopeencasa.coop",
         "scraper_key": "coope",
         "branch_key": "la_coope_kennedy_145",
+    },
+    {
+        "supermarket": "Maxiconsumo",
+        "name": "Maxiconsumo Comodoro static catalog pilot",
+        "base_url": "https://www.maxiconsumo.com/sucursal_comodoro_rivadavia",
+        "scraper_key": "maxiconsumo",
+        "branch_key": "maxiconsumo_yrigoyen",
     },
 )
 

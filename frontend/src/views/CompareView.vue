@@ -63,6 +63,14 @@ const filteredProducts = computed(() => {
 const selectedCity = computed(() => cities.value.find((city) => city.id === store.cityId))
 const isInBasket = (productId: string) => store.items.some((item) => item.product.id === productId)
 const activeSources = computed(() => sources.value.filter((source) => source.active && source.branchId))
+const sourceLabel = (scraperKey: string) => {
+  const labels: Record<string, string> = {
+    changomas: 'Chango Más',
+    coope: 'La Coope',
+    la_anonima: 'La Anónima',
+  }
+  return labels[scraperKey] ?? scraperKey.charAt(0).toUpperCase() + scraperKey.slice(1)
+}
 const originDescription = computed(() => {
   if (userLocation.value) return `Ubicación actual · precisión aproximada ${Math.round(userLocation.value.accuracy)} m`
   return `Centro de ${selectedCity.value?.nombre ?? 'la ciudad seleccionada'}`
@@ -277,7 +285,7 @@ onMounted(initialize)
 
             <article class="glass-card rounded-3xl p-5 sm:p-6"><div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 class="text-lg font-semibold">Productos de la canasta</h2><p class="mt-1 text-sm text-slate-500">Buscá en el catálogo o actualizá precios desde las fuentes.</p></div><label class="relative block sm:w-72"><span class="sr-only">Buscar producto</span><Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input v-model="productQuery" type="search" placeholder="Buscar producto" class="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-400" /></label></div>
               <div class="mt-4 flex flex-col gap-3 border-y border-slate-100 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div class="flex flex-wrap gap-x-4 gap-y-2"><label v-for="source in activeSources" :key="source.id" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><input v-model="selectedSourceIds" type="checkbox" :value="source.id" class="size-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />{{ source.scraperKey === 'la_anonima' ? 'La Anónima' : source.scraperKey === 'coope' ? 'La Coope' : source.scraperKey.charAt(0).toUpperCase() + source.scraperKey.slice(1) }}</label></div>
+                <div class="flex flex-wrap gap-x-4 gap-y-2"><label v-for="source in activeSources" :key="source.id" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><input v-model="selectedSourceIds" type="checkbox" :value="source.id" class="size-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />{{ sourceLabel(source.scraperKey) }}</label></div>
                 <button type="button" class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-sky-100 px-4 text-sm font-bold text-sky-900 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-45" :disabled="!productQuery.trim() || !selectedSourceIds.length || refreshing" @click="runLiveRefresh"><LoaderCircle v-if="refreshing" class="size-4 animate-spin" /><RefreshCw v-else class="size-4" />{{ refreshing ? 'Actualizando…' : 'Actualizar precios' }}</button>
               </div>
               <div v-if="liveError" class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">{{ liveError }}</div>

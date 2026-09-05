@@ -171,6 +171,7 @@ class ScrapingBenchmarkSourceDTO:
     source_id: UUID
     source_name: str
     run: ScrapingRunDTO | None
+    duration_ms: int | None = None
     load: "EtlLoadResultDTO | None" = None
     error_message: str | None = None
 

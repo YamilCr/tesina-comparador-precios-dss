@@ -105,18 +105,25 @@ sin modificar los casos de uso de ingestión. Cada fuente configurada conserva
 el supermercado asociado, la sucursal de destino, la URL base, el adaptador a
 utilizar y su estado de activación.
 
-La demostración integra cuatro adaptadores reales:
+La demostración integra seis adaptadores reales:
 
 \begin{itemize}
     \item \textit{Carrefour}: consulta su infraestructura VTEX mediante
     \texttt{aiohttp}. El adaptador crea una sesión de compra, asocia el código
     postal configurado y registra si la ubicación fue confirmada.
+    \item \textit{Chango Más}: consulta la API VTEX de Más Online, confirma el
+    código postal 9000 mediante una sesión de checkout y conserva únicamente
+    ofertas con precio y stock positivos. Esta confirmación representa cobertura
+    de entrega y no demuestra inventario de una sucursal física particular.
     \item \textit{Jumbo}: consulta el catálogo público mediante solicitudes
     HTTP asíncronas.
     \item \textit{La Coope}: consulta su API pública y filtra resultados que no
     contienen los términos significativos de búsqueda.
     \item \textit{La Anónima}: utiliza Playwright porque el catálogo depende de
     contenido dinámico ejecutado en el navegador.
+    \item \textit{Maxiconsumo}: procesa mediante \texttt{aiohttp} el HTML
+    renderizado por el servidor para la sucursal de Comodoro Rivadavia. Conserva
+    el precio unitario por bulto cerrado y su condición comercial en la auditoría.
 \end{itemize}
 
 Todos los adaptadores devuelven el mismo contrato de producto extraído, que
@@ -162,14 +169,15 @@ cuando el servidor utiliza un bucle incompatible con la creación de subprocesos
 Este mecanismo resuelve una restricción de integración y no constituye
 paralelismo de cálculo intensivo.
 
-El benchmark final realizado con Carrefour, La Coope y La Anónima registró tres
-repeticiones completas por modalidad. El promedio secuencial fue de
-aproximadamente 5489 milisegundos y el concurrente de 4399 milisegundos, lo que
-representó una reducción media del 19,9\%. Las seis ejecuciones comparadas
-completaron correctamente las tres fuentes. Estos resultados corresponden al
-entorno local y al conjunto acotado de consultas del experimento; no deben
-generalizarse como una garantía de rendimiento para cualquier carga o condición
-de red.
+El benchmark final realizado con Carrefour, Jumbo, La Coope y La Anónima
+registró cinco repeticiones completas por modalidad, después de una vuelta de
+calentamiento. El promedio secuencial fue de 6427,6 milisegundos y el concurrente
+de 3855,6 milisegundos, lo que representa un \textit{speedup} de 1,67 y una
+reducción media del 40,0\%. Las diez ejecuciones comparadas completaron las cuatro
+fuentes y procesaron 39 ítems cada una. La Anónima fue el camino crítico por el
+costo de Playwright, con 3618 milisegundos promedio en modo concurrente. Estos
+resultados corresponden al entorno local y al conjunto acotado de consultas del
+experimento; no deben generalizarse como una garantía de rendimiento universal.
 
 No se implementó todavía paralelismo de CPU basado en múltiples procesos. Su
 incorporación se considera una optimización futura para lotes masivos de
@@ -217,7 +225,7 @@ si un producto quedó fuera por ausencia, antigüedad o anomalía.
 
 \subsection{Implementación de la Base de Datos}
 
-La demostración local utiliza SQLite y se encuentra versionada mediante siete
+La demostración local utiliza SQLite y se encuentra versionada mediante nueve
 migraciones Alembic. El esquema incluye las entidades principales del dominio y
 tablas adicionales para fuentes, corridas, staging e identidad:
 
@@ -228,6 +236,8 @@ tablas adicionales para fuentes, corridas, staging e identidad:
     \item fuentes y corridas de scraping;
     \item productos extraídos en staging;
     \item revisiones auditables de identidad canónica.
+    \item verificación auditable de coordenadas de sucursales;
+    \item planes de actualización programada y su historial de ejecuciones.
 \end{itemize}
 
 SQLAlchemy abstrae la persistencia y la aplicación incluye controladores para
@@ -292,6 +302,41 @@ negativos y sumen uno. Las sucursales sin cobertura completa no reciben un
 puntaje artificial: se excluyen del ranking principal y se muestran por separado
 con los productos y motivos faltantes.
 
+\subsection{Validación Experimental del Sistema}
+
+La evaluación experimental se organizó en cuatro dimensiones reproducibles:
+rendimiento concurrente, cobertura por cadena, calidad del matching canónico y
+sensibilidad de las ponderaciones. Los scripts conservan los casos individuales,
+los identificadores de corridas y los resúmenes estadísticos en archivos CSV y
+JSON, de modo que los resultados puedan auditarse y repetirse.
+
+La cobertura se calculó para las siete cadenas configuradas. Carrefour, Jumbo,
+La Anónima, La Coope, Chango Más y Maxiconsumo cuentan con fuentes reales activas;
+Diarco posee una sucursal verificada pero
+todavía no tiene adaptador ni precios extraídos. Este resultado distingue
+la cobertura geográfica de la cobertura efectiva de productos y precios.
+
+Para evaluar la identidad canónica se construyó un conjunto etiquetado con diez
+productos y 36 casos, incluyendo equivalencias de unidad, variantes, marcas y
+tamaños incompatibles. El matcher obtuvo precisión 1,0000, recall 0,8636 y F1
+0,9268. No produjo falsos positivos y se abstuvo en tres casos positivos con
+aliases o descriptores insuficientes. Este resultado es coherente con el criterio
+conservador adoptado: se prioriza evitar fusiones incorrectas, dejando los casos
+dudosos para revisión.
+
+La sensibilidad del modelo se evaluó recorriendo el simplex de pesos con paso
+0,05, es decir, 231 combinaciones válidas. Con los pesos base 0,6 para precio,
+0,3 para distancia y 0,1 para ahorro, Chango Más resultó ganador. Conservó el
+primer puesto en el 60,6\% de los escenarios; Carrefour ganó el 27,3\% y La
+Anónima el 12,1\%. La correlación de Spearman media respecto del ranking base fue
+0,8017. Por tanto, la recomendación presenta estabilidad mayoritaria, aunque una
+preferencia elevada por cercanía puede modificar el primer puesto.
+
+Estas métricas son descriptivas. Los tiempos dependen de la red y de sitios
+externos, el ground truth debe ampliarse mediante revisión humana y la sensibilidad
+usa un escenario controlado. Además, las mediciones se ejecutaron sobre SQLite;
+la validación equivalente sobre PostgreSQL permanece pendiente.
+
 \subsection{Implementación del Frontend}
 
 El frontend fue implementado con Vue.js 3 y TypeScript. La aplicación consume
@@ -320,10 +365,10 @@ utilizar la acción \textit{Actualizar precios}. Esta decisión evita solicitude
 innecesarias a sitios externos y permite seleccionar las fuentes involucradas.
 
 La interfaz es adaptable a resoluciones de escritorio y dispositivos móviles.
-Actualmente no incorpora un mapa ni solicita la geolocalización del navegador;
-las distancias mostradas utilizan las coordenadas de la ciudad seleccionada como
-origen. En consecuencia, la representación geográfica mediante mapas permanece
-como una ampliación pendiente.
+El mapa Leaflet representa el origen, las alternativas y las sucursales sin
+cobertura. Como origen se utiliza el centro de la ciudad o, con permiso explícito,
+la ubicación provista por \texttt{navigator.geolocation}. Solo participan en el
+cálculo geográfico las sucursales cuyas coordenadas fueron verificadas y auditadas.
 
 \subsection{Integración y Alcance Actual del Sistema}
 
@@ -337,18 +382,17 @@ una ciudad y un conjunto piloto de fuentes, y no como un servicio productivo de
 cobertura nacional. En particular, permanecen pendientes:
 
 \begin{itemize}
-    \item validar o geocodificar todas las coordenadas de sucursales piloto;
-    \item incorporar mapas y ubicación real del usuario;
-    \item implementar la ejecución periódica mediante un scheduler operativo;
     \item validar migraciones, ETL y carga concurrente sobre PostgreSQL;
     \item ejecutar pruebas de carga, disponibilidad y despliegue;
-    \item ampliar la evaluación experimental de calidad y rendimiento.
+    \item incorporar autenticación y autorización para la administración;
+    \item ampliar el ground truth de matching a más categorías y cadenas;
+    \item validar disponibilidad y ubicación específica en todos los catálogos.
 \end{itemize}
 
-La actualización actual puede iniciarse desde la interfaz, la API o la línea de
-comandos. Existe la estructura destinada al scheduler, pero el trabajo periódico
-todavía no fue implementado. Por lo tanto, el sistema permite actualización bajo
-demanda, no actualización automática programada.
+La actualización puede iniciarse desde la interfaz, la API, la línea de comandos
+o mediante planes periódicos persistentes. El scheduler utiliza leases para evitar
+ejecuciones duplicadas, conserva historial, aplica reintentos con backoff y aísla
+los fallos de cada fuente.
 
 Con este alcance, la implementación demuestra el recorrido técnico central de la
 tesis y permite evaluar el modelo DSS con datos reales acotados, manteniendo

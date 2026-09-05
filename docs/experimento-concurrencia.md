@@ -22,7 +22,7 @@ fuentes; cada ejecucion queda auditada en `scraping_run` y `producto_extraido`.
 Se puede verificar la configuracion con:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8001/api/v1/ingestion/sources |
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/ingestion/sources |
   Select-Object -ExpandProperty items |
   Format-Table id, name, scraper_key, branch_id, active
 ```
@@ -44,24 +44,26 @@ Comodoro Rivadavia durante todas las repeticiones.
 
 ## Ejecucion
 
-Desde `backend/`, repetir tres veces cada modo y descartar una vuelta de calentamiento:
+Desde `backend/`, repetir cinco veces cada modo y descartar una vuelta de calentamiento:
 
 ```powershell
 uv run python scripts/benchmark_scraping_concurrency.py `
   --source-id <UUID_FUENTE_1> `
   --source-id <UUID_FUENTE_2> `
+  --source-id <UUID_FUENTE_3> `
+  --source-id <UUID_FUENTE_4> `
   --query "coca cola" `
   --query "leche" `
   --city "Comodoro Rivadavia" `
   --limit 5 `
-  --repetitions 3 `
+  --repetitions 5 `
   --warmups 1 `
-  --max-concurrency 2
+  --max-concurrency 4
 ```
 
-El comando alterna el orden de los modos en cada repeticion, escribe un CSV en
-`backend/reports/` y muestra los promedios de duracion junto con la reduccion
-observada. El CSV es un artefacto experimental local y no se versiona.
+El comando alterna el orden de los modos y genera tres CSV: resultados agregados,
+detalle por fuente y resumen estadistico. Los artefactos finales usados por la
+tesis se versionan en `backend/reports/`.
 
 ## Variables registradas
 
@@ -77,6 +79,9 @@ Cada fila del CSV conserva:
   efecto del orden.
 - `run_ids` y `errors`: trazabilidad hacia la auditoria de ingestion.
 
+El resumen agrega media, mediana, desvio estandar, p95, minimos, maximos,
+throughput, tasa de exito, speedup y reduccion por fuente.
+
 La mejora porcentual se calcula como:
 
 ```text
@@ -91,3 +96,11 @@ y la red no es determinista: el experimento demuestra el comportamiento del sist
 en ese contexto, no un tiempo universal de cada supermercado. Reportar tambien las
 fuentes fallidas y los indicadores ETL evita atribuir a la concurrencia una mejora
 que en realidad provenga de menor volumen de datos o de respuestas incompletas.
+
+## Resultado del 26 de agosto de 2026
+
+El experimento de cuatro cadenas completo cinco repeticiones por modo sin fallos.
+La media secuencial fue `6427,6 ms` y la concurrente `3855,6 ms`: speedup `1,67x`
+y reduccion del `40,0%`. Cada ejecucion proceso 39 items. La Anonima fue el camino
+critico por el costo de Playwright, por lo que incorporar mas fuentes HTTP puede
+aumentar el beneficio agregado mientras no superen su duracion.

@@ -82,6 +82,7 @@ class BenchmarkScrapingSourcesUseCase:
         results = []
         refresh = RefreshScrapingSourceUseCase(self._unit_of_work, self._scraper_factory)
         for source in sources:
+            source_began_at = perf_counter()
             try:
                 result = await refresh.execute(source.id)
             except Exception as error:
@@ -90,6 +91,7 @@ class BenchmarkScrapingSourcesUseCase:
                         source_id=source.id,
                         source_name=source.name,
                         run=await self._latest_run(source.id),
+                        duration_ms=_elapsed_ms(source_began_at),
                         error_message=_format_error(error),
                     )
                 )
@@ -99,6 +101,7 @@ class BenchmarkScrapingSourcesUseCase:
                     source_id=source.id,
                     source_name=source.name,
                     run=result.run,
+                    duration_ms=_elapsed_ms(source_began_at),
                     load=result.load,
                 )
             )
@@ -119,6 +122,7 @@ class BenchmarkScrapingSourcesUseCase:
                 source_id=source.source_id,
                 source_name=source.source_name,
                 run=source.run,
+                duration_ms=source.duration_ms,
                 load=source.load,
                 error_message=source.error_message,
             )

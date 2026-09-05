@@ -16,6 +16,7 @@ backend/**/*.pyc
 backend/**/__pycache__/
 backend/.pytest_cache/
 backend/*.egg-info/
+backend/reports/
 
 frontend/node_modules/
 frontend/dist/

@@ -38,12 +38,28 @@ CARREFOUR_LOCATION_TARGETS = {
     ),
 }
 
+CHANGOMAS_LOCATION_TARGETS = {
+    "comodoro rivadavia": VtexLocationTarget(
+        city="Comodoro Rivadavia",
+        postal_code="9000",
+        state="CH",
+    ),
+}
+
 
 def get_carrefour_location_target(city: str) -> VtexLocationTarget:
     """Returns Carrefour's supported postal-code target for a configured pilot city."""
     target = CARREFOUR_LOCATION_TARGETS.get(city.strip().casefold())
     if target is None:
         raise LookupError(f"Carrefour has no configured VTEX location target for {city!r}.")
+    return target
+
+
+def get_changomas_location_target(city: str) -> VtexLocationTarget:
+    """Returns Mas Online's supported delivery target for the configured pilot city."""
+    target = CHANGOMAS_LOCATION_TARGETS.get(city.strip().casefold())
+    if target is None:
+        raise LookupError(f"Chango Mas has no configured VTEX location target for {city!r}.")
     return target
 
 

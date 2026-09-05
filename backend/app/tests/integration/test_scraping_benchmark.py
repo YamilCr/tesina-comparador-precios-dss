@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from app.experiments import collect_chain_coverage
 from app.modules.ingestion.application.commands import CreateScrapingSourceCommand
 from app.modules.ingestion.application.use_cases import (
     BenchmarkScrapingSourcesUseCase,
@@ -79,6 +80,8 @@ async def test_benchmark_reports_equivalent_etl_outcomes_and_concurrent_duration
         "succeeded",
     ]
     assert [source.load.loaded for source in concurrent.sources if source.load] == [1, 1]
+    assert all(source.duration_ms is not None for source in sequential.sources)
+    assert all(source.duration_ms is not None for source in concurrent.sources)
     assert concurrent.duration_ms < sequential.duration_ms
 
 
@@ -102,3 +105,15 @@ async def test_benchmark_requires_a_target_branch(
 
     with pytest.raises(ValueError, match="no target branch"):
         await benchmark.execute([source.id], mode="sequential")
+
+
+@pytest.mark.asyncio
+async def test_chain_coverage_reports_all_active_supermarkets(
+    sqlite_session_factory,
+) -> None:
+    coverage = await collect_chain_coverage(sqlite_session_factory)
+
+    assert {row["chain"] for row in coverage} == {"Carrefour", "La Anónima"}
+    assert all(row["active_branches"] == 1 for row in coverage)
+    assert all(row["verified_branches"] == 1 for row in coverage)
+    assert all(row["products_with_available_price"] == 2 for row in coverage)
