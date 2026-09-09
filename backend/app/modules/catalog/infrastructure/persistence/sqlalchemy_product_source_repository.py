@@ -84,6 +84,7 @@ class SQLAlchemyProductSourceRepository(ProductSourceRepositoryPort):
             model.nombre_original = product_source.original_name
             model.codigo_externo = product_source.external_code
             model.url_producto = product_source.product_url
+            model.image_url = product_source.image_url
             model.unidad_original = product_source.original_unit
             model.confianza_match = product_source.match_confidence
             model.gtin = product_source.gtin

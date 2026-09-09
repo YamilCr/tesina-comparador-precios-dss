@@ -89,6 +89,7 @@ class SQLAlchemyProductRepository(ProductRepositoryPort):
             model.unidad_medida = product.unit_measure
             model.contenido_neto = product.net_content
             model.codigo_interno = product.internal_code
+            model.image_url = product.image_url
             model.activo = product.active
 
         await self._session.flush()

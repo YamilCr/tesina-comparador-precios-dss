@@ -34,11 +34,13 @@ class QualityScenarioScraper(ScraperPort):
                 "price": "3100.506",
                 "presentation": "2.25 L",
                 "url": "https://example.test/coca",
+                "image_url": "/images/coca.jpg",
             },
             {
                 "external_id": "LIVE-COCA",
                 "name": "Gaseosa Cola Sabor Original 2.25 Lts Coca Cola",
                 "price": "3100.506",
+                "image_url": "https://example.test/images/coca.jpg",
             },
             {
                 "external_id": "LIVE-BAD",
@@ -102,6 +104,10 @@ async def test_etl_loads_valid_prices_marks_quality_issues_and_is_idempotent(
     assert {item.status for item in staged} == {"loaded", "duplicate", "rejected"}
     assert loaded_source is not None
     assert loaded_source.product_id == seed_data.coca_product_id
+    assert loaded_source.image_url == "https://example.test/images/coca.jpg"
+    async with unit_of_work as uow:
+        product = await uow.products.get_by_id(loaded_source.product_id)
+        assert product.image_url == loaded_source.image_url
     assert run is not None and run.items_loaded == 2
     assert len(history) == 1
     assert history[0].amount == Decimal("3100.51")
@@ -111,6 +117,23 @@ async def test_etl_loads_valid_prices_marks_quality_issues_and_is_idempotent(
     assert second_load.processed == 0
     assert second_load.loaded == 0
     assert second_load.created_prices == 0
+
+    for image in ["https://example.test/images/new.jpg", None, "data:image/png,invalid"]:
+        extraction = await ExecuteScrapingRunUseCase(
+            unit_of_work,
+            lambda _: StaticScraper([{
+                "external_id": "LIVE-COCA",
+                "name": "Gaseosa Cola Sabor Original 2.25 Lts Coca Cola",
+                "price": "3100.50",
+                "image_url": image,
+            }]),
+        ).execute(source.id)
+        await LoadScrapingRunUseCase(unit_of_work).execute(extraction.run.id)
+        async with unit_of_work as uow:
+            publication = await uow.product_sources.get_by_id(loaded_source.id)
+            product = await uow.products.get_by_id(loaded_source.product_id)
+            assert publication.image_url == "https://example.test/images/new.jpg"
+            assert product.image_url == publication.image_url
 
 
 @pytest.mark.asyncio

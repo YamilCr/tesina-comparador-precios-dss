@@ -20,6 +20,7 @@ class ProductDTO:
     net_content: Decimal | None = None
     internal_code: str | None = None
     active: bool = True
+    image_url: str | None = None
 
     @staticmethod
     def from_entity(product: Product) -> "ProductDTO":
@@ -34,4 +35,5 @@ class ProductDTO:
             net_content=product.net_content,
             internal_code=product.internal_code,
             active=product.active,
+            image_url=product.image_url,
         )

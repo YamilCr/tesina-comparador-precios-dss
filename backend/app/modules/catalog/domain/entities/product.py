@@ -18,6 +18,7 @@ class Product:
     net_content: Decimal | None = None
     internal_code: str | None = None
     active: bool = True
+    image_url: str | None = None
 
     def __post_init__(self) -> None:
         """Valida el nombre normalizado y el contenido neto opcional."""

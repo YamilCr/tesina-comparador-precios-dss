@@ -10,6 +10,7 @@ export interface Paginated<T> {
 }
 
 export interface Product {
+  image_url?: string | null
   id: string
   nombre: string
   marca: string | null

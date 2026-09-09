@@ -37,6 +37,7 @@ def product_model_to_entity(model: ProductModel) -> Product:
         unit_measure=model.unidad_medida,
         net_content=model.contenido_neto,
         internal_code=model.codigo_interno,
+        image_url=model.image_url,
         active=model.activo,
     )
 
@@ -50,6 +51,7 @@ def product_source_model_to_entity(model: ProductSourceModel) -> ProductSource:
         original_name=model.nombre_original,
         external_code=model.codigo_externo,
         product_url=model.url_producto,
+        image_url=model.image_url,
         original_unit=model.unidad_original,
         match_confidence=model.confianza_match,
         gtin=model.gtin,
@@ -89,6 +91,7 @@ def product_entity_to_model(entity: Product) -> ProductModel:
         unidad_medida=entity.unit_measure,
         contenido_neto=entity.net_content,
         codigo_interno=entity.internal_code,
+        image_url=entity.image_url,
         activo=entity.active,
     )
 
@@ -102,6 +105,7 @@ def product_source_entity_to_model(entity: ProductSource) -> ProductSourceModel:
         nombre_original=entity.original_name,
         codigo_externo=entity.external_code,
         url_producto=entity.product_url,
+        image_url=entity.image_url,
         unidad_original=entity.original_unit,
         confianza_match=entity.match_confidence,
         gtin=entity.gtin,

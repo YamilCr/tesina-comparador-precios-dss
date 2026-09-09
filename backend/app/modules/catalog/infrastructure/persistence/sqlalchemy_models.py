@@ -109,6 +109,7 @@ class ProductModel(Base):
     unidad_medida: Mapped[str | None] = mapped_column(String(64), nullable=True)
     contenido_neto: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
     codigo_interno: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     activo: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -151,6 +152,7 @@ class ProductSourceModel(Base):
     nombre_original: Mapped[str] = mapped_column(String(500), nullable=False)
     codigo_externo: Mapped[str | None] = mapped_column(String(255), nullable=True)
     url_producto: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     unidad_original: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confianza_match: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
     gtin: Mapped[str | None] = mapped_column(String(14), nullable=True)

@@ -107,6 +107,7 @@ class FakeUnitOfWork:
         self,
         *,
         omit_second_branch_second_product: bool = False,
+        second_branch_supermarket_id: UUID = SUPERMARKET_2_ID,
         second_branch_coordinates_verified: bool = True,
     ) -> None:
         products = [
@@ -155,7 +156,7 @@ class FakeUnitOfWork:
             ),
             Branch(
                 id=BRANCH_2_ID,
-                supermarket_id=SUPERMARKET_2_ID,
+                supermarket_id=second_branch_supermarket_id,
                 city_id=CITY_ID,
                 name="Comodoro",
                 address="Av. Hipólito Yrigoyen 2600",
@@ -258,6 +259,24 @@ async def test_generate_ranking_reports_incomplete_branches() -> None:
     assert response.incomplete_branches[0].branch.id == BRANCH_2_ID
     assert response.incomplete_branches[0].missing_products[0].id == PRODUCT_2_ID
     assert response.incomplete_branches[0].missing_products[0].reason == "missing"
+
+
+@pytest.mark.asyncio
+async def test_generate_ranking_infers_prices_across_same_supermarket_branches() -> None:
+    """Debe completar una sucursal con precios observados en la misma cadena."""
+    response = await GenerateRankingUseCase(
+        FakeUnitOfWork(
+            omit_second_branch_second_product=True,
+            second_branch_supermarket_id=SUPERMARKET_1_ID,
+        )
+    ).execute(_ranking_command())
+
+    assert {result.branch.id for result in response.ranking} == {BRANCH_1_ID, BRANCH_2_ID}
+    assert response.incomplete_branches == []
+    assert {
+        result.branch.id: result.total_cost
+        for result in response.ranking
+    }[BRANCH_2_ID] == Decimal("4050")
 
 
 @pytest.mark.asyncio

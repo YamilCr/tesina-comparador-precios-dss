@@ -22,6 +22,8 @@ import {
 } from 'lucide-vue-next'
 
 import DashboardHeader from '@/components/DashboardHeader.vue'
+import ProductImage from '@/components/ProductImage.vue'
+import ProductDetailsModal from '@/components/ProductDetailsModal.vue'
 import RankingMap from '@/components/RankingMap.vue'
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format'
 import { api } from '@/services/api'
@@ -38,6 +40,7 @@ import type {
 const store = useComparisonStore()
 const cities = ref<City[]>([])
 const products = ref<Product[]>([])
+const selectedProduct = ref<Product | null>(null)
 const productQuery = ref('')
 const ranking = ref<RankingResponse | null>(null)
 const sources = ref<ScrapingSource[]>([])
@@ -54,11 +57,29 @@ const locating = ref(false)
 const locationError = ref('')
 const userLocation = ref<{ latitude: number; longitude: number; accuracy: number } | null>(null)
 
-const filteredProducts = computed(() => {
-  const term = productQuery.value.trim().toLocaleLowerCase('es')
-  if (!term) return products.value
-  return products.value.filter((product) => product.nombre.toLocaleLowerCase('es').includes(term))
-})
+const searchingProducts = ref(false)
+const searchError = ref('')
+let searchRequestId = 0
+const filteredProducts = computed(() => products.value)
+
+const searchProducts = async () => {
+  const requestId = ++searchRequestId
+  const query = productQuery.value.trim()
+  searchingProducts.value = true
+  searchError.value = ''
+  try {
+    const response = await api.products(query)
+    if (requestId === searchRequestId && query === productQuery.value.trim()) {
+      products.value = response.items
+    }
+  } catch (reason) {
+    if (requestId === searchRequestId && query === productQuery.value.trim()) {
+      searchError.value = reason instanceof Error ? reason.message : 'No se pudo consultar el catálogo.'
+    }
+  } finally {
+    if (requestId === searchRequestId) searchingProducts.value = false
+  }
+}
 
 const selectedCity = computed(() => cities.value.find((city) => city.id === store.cityId))
 const isInBasket = (productId: string) => store.items.some((item) => item.product.id === productId)
@@ -172,7 +193,7 @@ const runLiveRefresh = async () => {
       max_concurrency: Math.min(2, selectedSourceIds.value.length),
       timeout_seconds: 60,
     })
-    products.value = (await api.products(query)).items
+    await searchProducts()
     await loadBasketPrices()
   } catch (reason) {
     liveError.value = reason instanceof Error ? reason.message : 'No se pudo actualizar la búsqueda.'
@@ -224,7 +245,7 @@ const initialize = async () => {
       api.scrapingSources(),
     ])
     cities.value = cityResponse.items
-    products.value = productResponse.items
+    if (!productQuery.value.trim() && searchRequestId === 0) products.value = productResponse.items
     sources.value = sourceResponse.items
     selectedSourceIds.value = sourceResponse.items
       .filter((source) => source.active && source.branchId)
@@ -238,12 +259,21 @@ const initialize = async () => {
   }
 }
 
+watch(productQuery, (_, __, onCleanup) => {
+  ++searchRequestId
+  products.value = []
+  searchError.value = ''
+  searchingProducts.value = true
+  const timer = setTimeout(searchProducts, 300)
+  onCleanup(() => clearTimeout(timer))
+})
 watch([() => store.cityId, () => store.items], () => { ranking.value = null }, { deep: true })
 watch([() => store.cityId, () => store.items], loadBasketPrices, { deep: true })
 onMounted(initialize)
 </script>
 
 <template>
+  <ProductDetailsModal v-if="selectedProduct" :key="selectedProduct.id" :product="selectedProduct" :city-id="store.cityId" @close="selectedProduct = null" />
   <main class="page-shell">
     <DashboardHeader />
     <div class="mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6 lg:px-8">
@@ -290,11 +320,13 @@ onMounted(initialize)
               </div>
               <div v-if="liveError" class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">{{ liveError }}</div>
               <div v-if="refreshResult" class="mt-4 rounded-xl border px-4 py-3 text-sm" :class="refreshTotals.failed ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'">
-                <div class="flex flex-wrap items-center justify-between gap-2"><strong>{{ refreshTotals.loaded }} precios cargados</strong><span>{{ refreshResult.results.length - refreshTotals.failed }}/{{ refreshResult.results.length }} fuentes completadas</span></div>
-                <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs"><li v-for="result in refreshResult.results" :key="result.sourceId">{{ result.sourceName }}: {{ result.errorMessage ? 'error' : `${result.loaded} cargados · ${result.durationMs} ms` }}</li></ul>
+                <div class="flex flex-wrap items-center justify-between gap-2"><strong>{{ refreshTotals.loaded }} precios cargados</strong><span>{{ refreshResult.results.length - refreshTotals.failed }}/{{ refreshResult.results.length }} fuentes sin errores reportados</span></div>
+                <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs"><li v-for="result in refreshResult.results" :key="result.sourceId">{{ sourceLabel(sources.find((source) => source.id === result.sourceId)?.scraperKey ?? result.sourceName) }}: {{ result.errorMessage || result.status !== 'succeeded' ? 'No se pudo completar la actualización' : result.scraped === 0 ? 'Sin resultados para esta búsqueda' : `${result.scraped} encontrados · ${result.loaded} cargados · ${result.rejected} rechazados` }}</li></ul>
               </div>
-              <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2"><article v-for="product in filteredProducts" :key="product.id" class="flex items-start justify-between gap-4 rounded-2xl border border-slate-100 bg-white p-4"><div><p class="font-semibold text-slate-800">{{ product.nombre }}</p><p class="mt-1 text-xs text-slate-500">{{ product.marca ?? 'Sin marca' }} · {{ product.categoria ?? 'Sin categoría' }}</p></div><button type="button" class="grid size-9 shrink-0 place-items-center rounded-xl transition" :class="isInBasket(product.id) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-900 text-white hover:bg-slate-700'" :aria-label="`Agregar ${product.nombre}`" @click="addProduct(product)"><Check v-if="isInBasket(product.id)" class="size-4" /><PackagePlus v-else class="size-4" /></button></article></div>
-              <p v-if="!filteredProducts.length" class="mt-5 text-sm text-slate-500">No encontramos productos para esa búsqueda.</p>
+              <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2"><article v-for="product in filteredProducts" :key="product.id" class="flex items-start justify-between gap-4 rounded-2xl border border-slate-100 bg-white p-4"><button type="button" class="shrink-0 rounded-lg focus-visible:outline focus-visible:outline-sky-600" :aria-label="`Ver detalles de ${product.nombre}`" @click="selectedProduct = product"><ProductImage :src="product.image_url" :name="product.nombre" /></button><div class="min-w-0 flex-1 break-words"><button type="button" class="text-left font-semibold text-slate-800 hover:underline" @click="selectedProduct = product">{{ product.nombre }}</button><p class="mt-1 text-xs text-slate-500">{{ product.marca ?? 'Sin marca' }} · {{ product.categoria ?? 'Sin categoría' }}</p></div><button type="button" class="grid size-9 shrink-0 place-items-center rounded-xl transition" :class="isInBasket(product.id) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-900 text-white hover:bg-slate-700'" :aria-label="`Agregar ${product.nombre}`" @click="addProduct(product)"><Check v-if="isInBasket(product.id)" class="size-4" /><PackagePlus v-else class="size-4" /></button></article></div>
+              <p v-if="searchingProducts" role="status" class="mt-5 text-sm text-slate-500">Buscando productos...</p>
+              <p v-else-if="searchError" role="alert" class="mt-5 text-sm text-red-600">{{ searchError }}</p>
+              <p v-else-if="!filteredProducts.length" class="mt-5 text-sm text-slate-500">No encontramos productos para esa búsqueda.</p>
             </article>
 
             <article v-if="store.items.length" class="glass-card overflow-hidden rounded-3xl"><div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6"><div><h2 class="text-lg font-semibold">Precios vigentes</h2><p class="mt-1 text-sm text-slate-500">{{ currentPrices.length }} precios para la canasta en {{ selectedCity?.nombre }}</p></div><LoaderCircle v-if="loadingPrices" class="size-5 animate-spin text-sky-700" /><RefreshCw v-else class="size-5 text-sky-700" /></div>
@@ -308,7 +340,7 @@ onMounted(initialize)
           </section>
 
           <aside class="h-fit rounded-3xl bg-slate-950 p-5 text-white shadow-float sm:p-6 lg:sticky lg:top-5"><div class="flex items-center justify-between"><h2 class="font-semibold">Tu canasta</h2><button v-if="store.items.length" type="button" class="text-xs font-semibold text-slate-300 hover:text-white" @click="store.reset">Restablecer</button></div><p class="mt-1 text-sm text-slate-400">{{ selectedCity?.nombre ?? 'Elegí una ciudad' }}</p>
-            <div v-if="store.items.length" class="mt-6 divide-y divide-white/10"><div v-for="item in store.items" :key="item.product.id" class="py-4 first:pt-0"><div class="flex items-start justify-between gap-3"><div><p class="text-sm font-medium text-white">{{ item.product.nombre }}</p><p class="mt-1 text-xs text-slate-400">{{ item.product.marca }}</p></div><button type="button" class="text-slate-400 transition hover:text-rose-300" :aria-label="`Quitar ${item.product.nombre}`" @click="store.removeProduct(item.product.id)"><Trash2 class="size-4" /></button></div><div class="mt-3 flex items-center justify-between"><label class="sr-only" :for="`quantity-${item.product.id}`">Cantidad de {{ item.product.nombre }}</label><input :id="`quantity-${item.product.id}`" :value="item.quantity" min="0.1" step="0.1" type="number" class="w-20 rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 text-sm text-white" @input="store.updateQuantity(item.product.id, Number(($event.target as HTMLInputElement).value))" /><span class="text-xs text-slate-400">unidades</span></div></div></div>
+            <div v-if="store.items.length" class="mt-6 divide-y divide-white/10"><div v-for="item in store.items" :key="item.product.id" class="py-4 first:pt-0"><div class="flex items-start justify-between gap-3"><button type="button" class="shrink-0 rounded-lg" :aria-label="`Ver detalles de ${item.product.nombre}`" @click="selectedProduct = item.product"><ProductImage :src="item.product.image_url" :name="item.product.nombre" /></button><div class="min-w-0 flex-1 break-words"><button type="button" class="text-left text-sm font-medium text-white hover:underline" @click="selectedProduct = item.product">{{ item.product.nombre }}</button><p class="mt-1 text-xs text-slate-400">{{ item.product.marca }}</p></div><button type="button" class="text-slate-400 transition hover:text-rose-300" :aria-label="`Quitar ${item.product.nombre}`" @click="store.removeProduct(item.product.id)"><Trash2 class="size-4" /></button></div><div class="mt-3 flex items-center justify-between"><label class="sr-only" :for="`quantity-${item.product.id}`">Cantidad de {{ item.product.nombre }}</label><input :id="`quantity-${item.product.id}`" :value="item.quantity" min="0.1" step="0.1" type="number" class="w-20 rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 text-sm text-white" @input="store.updateQuantity(item.product.id, Number(($event.target as HTMLInputElement).value))" /><span class="text-xs text-slate-400">unidades</span></div></div></div>
             <div v-else class="mt-7 rounded-2xl border border-dashed border-white/20 p-5 text-center"><ShoppingBasket class="mx-auto size-5 text-sky-300" /><p class="mt-3 text-sm text-slate-300">Tu canasta está vacía.</p><p class="mt-1 text-xs leading-5 text-slate-500">Agregá productos desde el catálogo para calcular una recomendación.</p></div>
             <button type="button" class="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 py-3 font-bold text-slate-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-45" :disabled="!store.items.length || !store.cityId || calculating || !store.hasValidWeights" @click="runRanking"><LoaderCircle v-if="calculating" class="size-4 animate-spin" /><Trophy v-else class="size-4" />{{ calculating ? 'Calculando…' : 'Calcular ranking' }}</button>
           </aside>

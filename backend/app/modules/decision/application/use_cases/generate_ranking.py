@@ -93,9 +93,11 @@ class GenerateRankingUseCase:
                 )
 
             source_by_id, source_product_ids = await self._load_product_sources(uow, product_ids)
-            prices = await uow.prices.find_for_basket(
-                product_ids=product_ids,
-                branch_ids=list(branch_by_id),
+            prices = await uow.prices.find_for_basket(product_ids=product_ids)
+            prices = self._filter_prices_for_candidate_supermarkets(
+                prices=prices,
+                branch_by_id=branch_by_id,
+                source_by_id=source_by_id,
             )
             quality_selection = PriceQualityPolicy(
                 max_age_days=request.max_price_age_days
@@ -218,6 +220,21 @@ class GenerateRankingUseCase:
         )
 
     @staticmethod
+    def _filter_prices_for_candidate_supermarkets(
+        *,
+        prices: list[Price],
+        branch_by_id: dict[UUID, Branch],
+        source_by_id: dict[UUID, ProductSource],
+    ) -> list[Price]:
+        candidate_supermarket_ids = {branch.supermarket_id for branch in branch_by_id.values()}
+        return [
+            price
+            for price in prices
+            if (source := source_by_id.get(price.product_source_id)) is not None
+            and source.supermarket_id in candidate_supermarket_ids
+        ]
+
+    @staticmethod
     def _build_exclusion_reasons(
         *,
         selection: PriceQualitySelection,
@@ -227,19 +244,20 @@ class GenerateRankingUseCase:
     ) -> dict[tuple[UUID, UUID], str]:
         """Explica por qué un producto no quedó habilitado para una sucursal."""
         reasons: dict[tuple[UUID, UUID], str] = {}
+        branches_by_supermarket: dict[UUID, list[Branch]] = {}
+        for branch in branch_by_id.values():
+            branches_by_supermarket.setdefault(branch.supermarket_id, []).append(branch)
         for status, excluded_prices in (
             ("stale", selection.stale),
             ("suspect", selection.suspect),
         ):
             for price in excluded_prices:
-                branch = branch_by_id.get(price.branch_id)
                 source = source_by_id.get(price.product_source_id)
                 product_id = source_product_ids.get(price.product_source_id)
-                if branch is None or source is None or product_id is None:
+                if source is None or product_id is None:
                     continue
-                if source.supermarket_id != branch.supermarket_id:
-                    continue
-                reasons[(branch.id, product_id)] = status
+                for branch in branches_by_supermarket.get(source.supermarket_id, []):
+                    reasons[(branch.id, product_id)] = status
         return reasons
 
     @staticmethod
@@ -292,8 +310,9 @@ class GenerateRankingUseCase:
         source_by_id: dict[UUID, ProductSource],
         source_product_ids: dict[UUID, UUID],
     ) -> dict[UUID, dict[UUID, Price]]:
-        """Selecciona el último precio válido por sucursal y producto."""
+        """Selecciona precio directo y completa faltantes con precio inferido por cadena."""
         latest: dict[UUID, dict[UUID, Price]] = {}
+        latest_by_supermarket: dict[tuple[UUID, UUID], Price] = {}
         for price in prices:
             if not price.available:
                 continue
@@ -301,16 +320,25 @@ class GenerateRankingUseCase:
             branch = branch_by_id.get(price.branch_id)
             source = source_by_id.get(price.product_source_id)
             product_id = source_product_ids.get(price.product_source_id)
-            if branch is None or source is None or product_id is None:
-                continue
-            if source.supermarket_id != branch.supermarket_id:
+            if source is None or product_id is None:
                 continue
 
-            current = latest.setdefault(branch.id, {}).get(product_id)
-            if current is None or price.observed_at > current.observed_at:
+            supermarket_key = (source.supermarket_id, product_id)
+            current_supermarket_price = latest_by_supermarket.get(supermarket_key)
+            if _is_better_current_price(price, current_supermarket_price):
+                latest_by_supermarket[supermarket_key] = price
+
+            if branch is None or source.supermarket_id != branch.supermarket_id:
+                continue
+            current_branch_price = latest.setdefault(branch.id, {}).get(product_id)
+            if _is_better_current_price(price, current_branch_price):
                 latest[branch.id][product_id] = price
-            elif price.observed_at == current.observed_at and price.amount < current.amount:
-                latest[branch.id][product_id] = price
+
+        for branch in branch_by_id.values():
+            branch_prices = latest.setdefault(branch.id, {})
+            for (supermarket_id, product_id), price in latest_by_supermarket.items():
+                if supermarket_id == branch.supermarket_id and product_id not in branch_prices:
+                    branch_prices[product_id] = price
         return latest
 
     @staticmethod
@@ -341,3 +369,11 @@ class GenerateRankingUseCase:
             latitude=branch.latitude,
             longitude=branch.longitude,
         )
+
+
+def _is_better_current_price(candidate: Price, current: Price | None) -> bool:
+    if current is None:
+        return True
+    if candidate.observed_at > current.observed_at:
+        return True
+    return candidate.observed_at == current.observed_at and candidate.amount < current.amount

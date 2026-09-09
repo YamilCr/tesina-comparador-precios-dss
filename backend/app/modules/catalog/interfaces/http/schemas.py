@@ -19,6 +19,7 @@ class ProductResponse(BaseModel):
     unit_measure: str | None = None
     net_content: Decimal | None = None
     internal_code: str | None = None
+    image_url: str | None = None
 
 
 class ProductCategoryResponse(BaseModel):

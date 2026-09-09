@@ -95,6 +95,7 @@ async def list_products(
                 unit_measure=product.unit_measure,
                 net_content=product.net_content,
                 internal_code=product.internal_code,
+                image_url=product.image_url,
             ).model_dump(mode="json")
             for product in products
     ]

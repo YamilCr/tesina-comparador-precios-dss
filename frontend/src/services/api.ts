@@ -33,6 +33,7 @@ interface BackendPaginated<T> {
 }
 
 interface BackendProduct {
+  image_url?: string | null
   id: string
   normalized_name: string
   category_id: string | null
@@ -201,6 +202,7 @@ const toPagination = <T>(payload: BackendPaginated<T>): Paginated<T> => ({
 })
 
 const mapProduct = (product: BackendProduct): Product => ({
+  image_url: product.image_url,
   id: product.id,
   nombre: product.normalized_name,
   marca: product.brand_name ?? product.brand_id,

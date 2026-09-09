@@ -19,6 +19,7 @@ class ProductSource:
     match_confidence: Decimal | None = None
     gtin: str | None = None
     active: bool = True
+    image_url: str | None = None
 
     def __post_init__(self) -> None:
         """Valida el nombre publicado y la confianza de coincidencia opcional."""

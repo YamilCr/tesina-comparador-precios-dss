@@ -10,6 +10,7 @@ from app.modules.catalog.domain.entities import Product, ProductSource
 from app.modules.catalog.application.services import build_product_search_entry
 from app.modules.catalog.domain.ports import ProductSearchIndexEntry, ProductSearchIndexPort
 from app.modules.ingestion.application.dto import EtlLoadResultDTO
+from app.modules.ingestion.application.product_images import normalize_image_url
 from app.modules.ingestion.domain.entities import ScrapedProduct
 from app.modules.ingestion.infrastructure.etl import (
     ProductIdentityCandidate,
@@ -166,6 +167,17 @@ class LoadScrapingRunUseCase:
                     product_source.original_unit = normalized.original_unit
                     product_source.gtin = product_source.gtin or _staged_gtin(staged)
                     product_source.activate()
+                image_url = normalize_image_url(
+                    staged.raw_payload.get("image_url"), staged.product_url
+                )
+                if image_url:
+                    product = await uow.products.get_by_id(product_source.product_id)
+                    if product is not None and (
+                        not product.image_url or product.image_url == product_source.image_url
+                    ):
+                        product.image_url = image_url
+                        await uow.products.save(product)
+                    product_source.image_url = image_url
                 product_source = await uow.product_sources.save(product_source)
 
                 observed_at = run.finished_at or run.started_at

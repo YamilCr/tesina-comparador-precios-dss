@@ -15,6 +15,8 @@ import {
 } from 'lucide-vue-next'
 
 import DashboardHeader from '@/components/DashboardHeader.vue'
+import ProductImage from '@/components/ProductImage.vue'
+import ProductDetailsModal from '@/components/ProductDetailsModal.vue'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { api, apiMode } from '@/services/api'
 import type { Branch, City, CurrentPrice, Product, Supermarket } from '@/types'
@@ -23,6 +25,7 @@ type Tab = 'catalog' | 'branches' | 'prices'
 
 const activeTab = ref<Tab>('catalog')
 const products = ref<Product[]>([])
+const selectedProduct = ref<Product | null>(null)
 const cities = ref<City[]>([])
 const supermarkets = ref<Supermarket[]>([])
 const branches = ref<Branch[]>([])
@@ -72,6 +75,7 @@ onMounted(loadData)
 </script>
 
 <template>
+  <ProductDetailsModal v-if="selectedProduct" :key="selectedProduct.id" :product="selectedProduct" :city-id="cityFilter" @close="selectedProduct = null" />
   <main class="page-shell">
     <DashboardHeader />
     <div class="mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6 lg:px-8">
@@ -89,7 +93,7 @@ onMounted(loadData)
       <section v-else class="mt-5 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
         <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 class="font-semibold">{{ activeTab === 'catalog' ? 'Productos normalizados' : activeTab === 'branches' ? 'Sucursales activas' : 'Precios vigentes' }}</h2><p class="mt-1 text-sm text-slate-500">{{ activeTab === 'catalog' ? `${visibleProducts.length} registros en el catálogo` : activeTab === 'branches' ? `${branches.length} sucursales según los filtros` : `${visiblePrices.length} precios vigentes` }}</p></div><Boxes class="size-5 text-sky-700" /></div>
 
-        <div v-if="activeTab === 'catalog'" class="overflow-x-auto"><table class="min-w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-5 py-3 font-semibold">Producto</th><th class="px-5 py-3 font-semibold">Marca</th><th class="px-5 py-3 font-semibold">Categoría</th><th class="px-5 py-3 font-semibold">Presentación</th><th class="px-5 py-3 font-semibold">Código</th></tr></thead><tbody class="divide-y divide-slate-100"><tr v-for="product in visibleProducts" :key="product.id" class="hover:bg-slate-50/70"><td class="px-5 py-4 font-medium text-slate-800">{{ product.nombre }}</td><td class="px-5 py-4 text-slate-600">{{ product.marca ?? '—' }}</td><td class="px-5 py-4 text-slate-600">{{ product.categoria ?? '—' }}</td><td class="px-5 py-4 text-slate-600">{{ product.contenido_neto }} {{ product.unidad_medida }}</td><td class="px-5 py-4 font-mono text-xs text-slate-500">{{ product.codigo_interno }}</td></tr><tr v-if="!visibleProducts.length"><td colspan="5" class="px-5 py-12 text-center text-slate-500">No hay productos para mostrar.</td></tr></tbody></table></div>
+        <div v-if="activeTab === 'catalog'" class="overflow-x-auto"><table class="min-w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-5 py-3 font-semibold">Producto</th><th class="px-5 py-3 font-semibold">Marca</th><th class="px-5 py-3 font-semibold">Categoría</th><th class="px-5 py-3 font-semibold">Presentación</th><th class="px-5 py-3 font-semibold">Código</th></tr></thead><tbody class="divide-y divide-slate-100"><tr v-for="product in visibleProducts" :key="product.id" class="hover:bg-slate-50/70"><td class="px-5 py-4 font-medium text-slate-800"><button type="button" class="flex items-center gap-3 text-left hover:underline" :aria-label="`Ver detalles de ${product.nombre}`" @click="selectedProduct = product"><ProductImage :src="product.image_url" :name="product.nombre" /><span class="min-w-0 break-words">{{ product.nombre }}</span></button></td><td class="px-5 py-4 text-slate-600">{{ product.marca ?? '—' }}</td><td class="px-5 py-4 text-slate-600">{{ product.categoria ?? '—' }}</td><td class="px-5 py-4 text-slate-600">{{ product.contenido_neto }} {{ product.unidad_medida }}</td><td class="px-5 py-4 font-mono text-xs text-slate-500">{{ product.codigo_interno }}</td></tr><tr v-if="!visibleProducts.length"><td colspan="5" class="px-5 py-12 text-center text-slate-500">No hay productos para mostrar.</td></tr></tbody></table></div>
 
         <div v-else-if="activeTab === 'branches'" class="overflow-x-auto"><table class="min-w-full text-left text-sm"><thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-5 py-3 font-semibold">Supermercado</th><th class="px-5 py-3 font-semibold">Sucursal</th><th class="px-5 py-3 font-semibold">Ciudad</th><th class="px-5 py-3 font-semibold">Dirección</th><th class="px-5 py-3 font-semibold">Coordenadas</th></tr></thead><tbody class="divide-y divide-slate-100"><tr v-for="branch in branches" :key="branch.id" class="hover:bg-slate-50/70"><td class="px-5 py-4 font-medium text-slate-800">{{ branch.supermercado }}</td><td class="px-5 py-4 text-slate-600">{{ branch.nombre }}</td><td class="px-5 py-4 text-slate-600">{{ branch.ciudad }}</td><td class="px-5 py-4 text-slate-600">{{ branch.direccion }}</td><td class="px-5 py-4 font-mono text-xs text-slate-500">{{ branch.latitud }}, {{ branch.longitud }}</td></tr><tr v-if="!branches.length"><td colspan="5" class="px-5 py-12 text-center text-slate-500">No hay sucursales con estos filtros.</td></tr></tbody></table></div>
 
