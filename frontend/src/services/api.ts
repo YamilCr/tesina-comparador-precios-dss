@@ -14,6 +14,8 @@ import type {
   ScrapingSource,
   Supermarket,
   Branch,
+  SubstitutionCandidate,
+  SuggestionsResponse,
 } from '@/types'
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
@@ -148,6 +150,8 @@ interface BackendRankingResponse {
     suspect_excluded_count: number
   }
   ranking: Array<{
+    basket_type?: 'original' | 'substituted'
+    substitutions?: SubstitutionCandidate[]
     position: number
     branch: BackendRankingBranch
     total_cost: string
@@ -157,6 +161,10 @@ interface BackendRankingResponse {
     missing_products_count: number
   }>
   incomplete_branches: Array<{
+    distance_km?: string
+    covered_products_count?: number
+    total_products_count?: number
+    substitutions?: SubstitutionCandidate[]
     branch: BackendRankingBranch
     missing_products: Array<{
       id: string
@@ -175,7 +183,9 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const body = (await response.json().catch(() => null)) as
       | { detail?: unknown; error?: { message?: string } }
       | null
-    const detailMessage = typeof body?.detail === 'string' ? body.detail : null
+    const detailMessage = typeof body?.detail === 'string' ? body.detail
+      : body?.detail && typeof body.detail === 'object' && 'message' in body.detail
+        ? String(body.detail.message) : null
     throw new Error(
       body?.error?.message ??
         detailMessage ??
@@ -413,6 +423,8 @@ const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResp
       precios_sospechosos: payload.quality.suspect_excluded_count,
     },
     ranking: payload.ranking.map((item) => ({
+      basket_type: item.basket_type ?? 'original',
+      substitutions: item.substitutions ?? [],
       posicion: item.position,
       sucursal: mapRankingBranch(item.branch, cityPayload.items),
       total: item.total_cost,
@@ -421,6 +433,10 @@ const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResp
       puntaje: item.score,
     })),
     incomplete: payload.incomplete_branches.map((item) => ({
+      distance_km: item.distance_km,
+      covered_products_count: item.covered_products_count,
+      total_products_count: item.total_products_count,
+      substitutions: item.substitutions ?? [],
       sucursal: mapRankingBranch(item.branch, cityPayload.items),
       productos_faltantes: item.missing_products.map((product) => ({
         id: product.id,
@@ -432,6 +448,9 @@ const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResp
 }
 
 const liveApi: DataClient = {
+  substitutions: (payload) => request<SuggestionsResponse>('/api/v1/decisions/substitutions', {
+    method: 'POST', body: JSON.stringify(payload),
+  }),
   health: () => request('/health'),
   products: fetchCatalogProducts,
   categories: fetchCategories,

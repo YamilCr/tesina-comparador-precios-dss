@@ -40,6 +40,9 @@ class SearchProductsUseCase:
             textual_products = await uow.products.search_by_name(query.query, query.limit)
             textual_products = _filter_by_category(textual_products, category_id)
 
+            if textual_products:
+                return [ProductDTO.from_entity(product) for product in textual_products]
+
             if not self._vector_search_enabled or self._search_index is None:
                 return [ProductDTO.from_entity(product) for product in textual_products]
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Literal
+from uuid import UUID
 
 from rapidfuzz import fuzz
 
@@ -48,8 +50,74 @@ class ProductIdentityMatch:
     method: str
 
 
+@dataclass(frozen=True)
+class ProductIdentityDecision:
+    status: Literal["matched", "no_match", "review_required"]
+    match: ProductIdentityMatch | None = None
+    candidate_ids: tuple[UUID, ...] = ()
+    reason: str | None = None
+
+
 class ProductIdentityMatcher:
     """Matches only exact or structurally compatible, non-ambiguous products."""
+
+    def assess(self, *, name, presentation, brand, candidates) -> ProductIdentityDecision:
+        match = self.match(name=name, presentation=presentation, brand=brand, candidates=candidates)
+        if match is not None:
+            if match.method == "fuzzy_lexical":
+                left = build_product_identity(name, presentation=presentation)
+                right = build_product_identity(
+                    match.product.normalized_name, unit_measure=match.product.unit_measure,
+                    net_content=match.product.net_content,
+                )
+                if "".join(sorted(left.tokens)) == "".join(sorted(right.tokens)):
+                    return ProductIdentityDecision("matched", match=ProductIdentityMatch(
+                        match.product, Decimal("0.900"), "compact_key",
+                    ))
+                return ProductIdentityDecision(
+                    "review_required", candidate_ids=(match.product.id,),
+                    reason="Lexical similarity requires identity review.",
+                )
+            return ProductIdentityDecision("matched", match=match)
+
+        identity = build_product_identity(name, presentation=presentation)
+        possible = []
+        for candidate in candidates:
+            other = build_product_identity(
+                candidate.product.normalized_name,
+                unit_measure=candidate.product.unit_measure,
+                net_content=candidate.product.net_content,
+            )
+            if not self._brands_are_compatible(brand, candidate.brand_name):
+                continue
+            if not self._has_brand_evidence(
+                source_name=name, source_brand=brand, canonical_brand=candidate.brand_name,
+            ):
+                continue
+            exact = _identity_signature(identity) == _identity_signature(other)
+            compatible = self._passes_hard_constraints(
+                source_identity=identity, product_identity=other, source_name=name,
+                source_brand=brand, canonical_brand=candidate.brand_name,
+            )
+            # These lexical aliases only propose review; they never approve a merge.
+            def alias_tokens(tokens):
+                return frozenset(
+                    "scon" if token in {"scons", "sconcitos"} else token for token in tokens
+                )
+            alias_match = (
+                normalized_brand_key(brand) == normalized_brand_key(candidate.brand_name) == "9deoro"
+                and alias_tokens(identity.tokens) == alias_tokens(other.tokens)
+            )
+            if exact or (compatible and (
+                self._lexical_similarity(identity, other) >= Decimal("0.700") or alias_match
+            )):
+                possible.append(candidate.product.id)
+        if possible:
+            return ProductIdentityDecision(
+                "review_required", candidate_ids=tuple(sorted(set(possible), key=str)),
+                reason="Ambiguous or approximate canonical product identity.",
+            )
+        return ProductIdentityDecision("no_match")
 
     def match(
         self,

@@ -1,6 +1,6 @@
 """DTOs de aplicación para solicitar y devolver rankings DSS."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
@@ -41,6 +41,10 @@ class IncompleteBranchDTO:
 
     branch: RankingBranchDTO
     missing_products: list[MissingProductDTO]
+    distance_km: Decimal = Decimal("0")
+    covered_products_count: int = 0
+    total_products_count: int = 0
+    substitutions: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,8 @@ class RankingResultDTO:
     saving: Decimal
     score: Decimal
     missing_products_count: int = 0
+    basket_type: str = "original"
+    substitutions: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

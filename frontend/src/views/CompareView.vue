@@ -25,6 +25,8 @@ import DashboardHeader from '@/components/DashboardHeader.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import ProductDetailsModal from '@/components/ProductDetailsModal.vue'
 import RankingMap from '@/components/RankingMap.vue'
+import BranchSubstitutions from '@/components/BranchSubstitutions.vue'
+import { useSubstitutions } from '@/composables/useSubstitutions'
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format'
 import { api } from '@/services/api'
 import { useComparisonStore } from '@/stores/comparison'
@@ -35,6 +37,7 @@ import type {
   Product,
   RankingResponse,
   ScrapingSource,
+  IncompleteBranch,
 } from '@/types'
 
 const store = useComparisonStore()
@@ -43,6 +46,29 @@ const products = ref<Product[]>([])
 const selectedProduct = ref<Product | null>(null)
 const productQuery = ref('')
 const ranking = ref<RankingResponse | null>(null)
+const substitutionBranches = ref<IncompleteBranch[]>([])
+const { selections, suggestions, errors: substitutionErrors, pending: substitutionPending,
+  invalidate: invalidateSuggestions, search: searchSubstitutions, select, restore } = useSubstitutions(api)
+let rankingVersion = 0
+let pricesVersion = 0
+const invalidateRanking = () => {
+  rankingVersion++
+  ranking.value = null
+  calculating.value = false
+  error.value = ''
+}
+const chooseSubstitute = (branch: string, original: string, replacement: string | null) => {
+  select(branch, original, replacement)
+  invalidateRanking()
+}
+const restoreBranch = (branch: string) => {
+  restore(branch)
+  invalidateRanking()
+}
+const findSubstitutes = (branchId: string) => searchSubstitutions({
+  branch_id: branchId,
+  items: store.items.map((item) => ({ product_id: item.product.id, quantity: String(item.quantity) })),
+})
 const sources = ref<ScrapingSource[]>([])
 const selectedSourceIds = ref<string[]>([])
 const currentPrices = ref<CurrentPrice[]>([])
@@ -104,12 +130,6 @@ const refreshTotals = computed(() => {
   }
 })
 
-const missingReasonLabel = (reason: 'missing' | 'stale' | 'suspect') => {
-  if (reason === 'stale') return 'precio vencido'
-  if (reason === 'suspect') return 'precio anómalo'
-  return 'sin precio'
-}
-
 const ensureWeightLimit = (changed: 'price' | 'distance') => {
   if (store.priceWeight + store.distanceWeight <= 100) return
   if (changed === 'price') store.distanceWeight = Math.max(0, 100 - store.priceWeight)
@@ -157,6 +177,7 @@ const useCityCenter = () => {
 }
 
 const loadBasketPrices = async () => {
+  const version = ++pricesVersion
   if (!store.cityId || !store.items.length) {
     currentPrices.value = []
     return
@@ -168,13 +189,14 @@ const loadBasketPrices = async () => {
         api.currentPrices({ productId: item.product.id, cityId: store.cityId }),
       ),
     )
+    if (version !== pricesVersion) return
     currentPrices.value = Array.from(
       new Map(responses.flatMap((response) => response.items).map((price) => [price.id, price])).values(),
     )
   } catch (reason) {
-    liveError.value = reason instanceof Error ? reason.message : 'No se pudieron consultar los precios.'
+    if (version === pricesVersion) liveError.value = reason instanceof Error ? reason.message : 'No se pudieron consultar los precios.'
   } finally {
-    loadingPrices.value = false
+    if (version === pricesVersion) loadingPrices.value = false
   }
 }
 
@@ -182,6 +204,8 @@ const runLiveRefresh = async () => {
   const query = productQuery.value.trim()
   if (!query || !selectedCity.value || !selectedSourceIds.value.length) return
   refreshing.value = true
+  invalidateRanking()
+  invalidateSuggestions()
   liveError.value = ''
   refreshResult.value = null
   try {
@@ -199,20 +223,24 @@ const runLiveRefresh = async () => {
     liveError.value = reason instanceof Error ? reason.message : 'No se pudo actualizar la búsqueda.'
   } finally {
     refreshing.value = false
+    invalidateRanking()
+    invalidateSuggestions()
   }
 }
 
 const runRanking = async () => {
-  if (!store.cityId || !store.items.length || !store.hasValidWeights) return
+  if (!store.cityId || !store.items.length || !store.hasValidWeights || refreshing.value) return
+  const version = ++rankingVersion
   calculating.value = true
   error.value = ''
   try {
     const branchResponse = await api.branches(store.cityId)
+    if (version !== rankingVersion) return
     const verifiedBranches = branchResponse.items.filter((branch) => branch.coordenadas_verificadas)
     if (!verifiedBranches.length) {
       throw new Error('No hay sucursales con coordenadas verificadas para esta ciudad.')
     }
-    ranking.value = await api.ranking({
+    const response = await api.ranking({
       city_id: store.cityId,
       branch_ids: verifiedBranches.map((branch) => branch.id),
       ...(userLocation.value
@@ -227,11 +255,27 @@ const runRanking = async () => {
         distance: store.distanceWeight / 100,
         saving: store.savingWeight / 100,
       },
+      substitutions: selections.value.map((selection) => ({ ...selection })),
     })
+    if (version !== rankingVersion) return
+    ranking.value = response
+    // Keep accepted branches editable even after they become complete.
+    substitutionBranches.value = [
+      ...response.incomplete,
+      ...response.ranking.filter((result) => result.substitutions?.length).map((result) => ({
+        accepted_substitutions: true,
+        sucursal: result.sucursal, distance_km: result.distancia_km,
+        covered_products_count: store.items.length,
+        total_products_count: store.items.length,
+        productos_faltantes: (result.substitutions ?? []).map((item) => ({
+          id: item.original_product_id, nombre: item.original_name ?? item.original_product_id, motivo: 'missing' as const,
+        })),
+      })),
+    ]
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : 'No se pudo calcular el ranking.'
+    if (version === rankingVersion) error.value = reason instanceof Error ? reason.message : 'No se pudo calcular el ranking.'
   } finally {
-    calculating.value = false
+    if (version === rankingVersion) calculating.value = false
   }
 }
 
@@ -267,7 +311,12 @@ watch(productQuery, (_, __, onCleanup) => {
   const timer = setTimeout(searchProducts, 300)
   onCleanup(() => clearTimeout(timer))
 })
-watch([() => store.cityId, () => store.items], () => { ranking.value = null }, { deep: true })
+watch([() => store.cityId, () => store.items], () => {
+  invalidateRanking()
+  invalidateSuggestions(true)
+  substitutionBranches.value = []
+}, { deep: true, flush: 'sync' })
+watch([() => store.priceWeight, () => store.distanceWeight, userLocation], invalidateRanking, { deep: true, flush: 'sync' })
 watch([() => store.cityId, () => store.items], loadBasketPrices, { deep: true })
 onMounted(initialize)
 </script>
@@ -281,7 +330,7 @@ onMounted(initialize)
       <div class="mt-5 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><span class="section-kicker"><BarChart3 class="size-3.5" /> Comparador DSS</span><h1 class="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">Encontrá la alternativa más conveniente para tu canasta.</h1><p class="mt-3 max-w-2xl leading-7 text-slate-500">Sumá productos, elegí una ciudad y ajustá qué criterio importa más para tu compra.</p></div><div class="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800"><span class="font-bold">{{ store.totalProducts }}</span> productos en la canasta</div></div>
 
       <div v-if="error && !loading" class="mt-8 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert">{{ error }}</div>
-      <div v-else-if="loading" class="mt-8 grid place-items-center rounded-3xl border border-white bg-white/70 py-24 text-slate-500"><LoaderCircle class="size-6 animate-spin" aria-hidden="true" /><p class="mt-3 text-sm">Preparando los datos de comparación…</p></div>
+      <div v-if="loading" class="mt-8 grid place-items-center rounded-3xl border border-white bg-white/70 py-24 text-slate-500"><LoaderCircle class="size-6 animate-spin" aria-hidden="true" /><p class="mt-3 text-sm">Preparando los datos de comparación…</p></div>
 
       <template v-else>
         <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -342,7 +391,7 @@ onMounted(initialize)
           <aside class="h-fit rounded-3xl bg-slate-950 p-5 text-white shadow-float sm:p-6 lg:sticky lg:top-5"><div class="flex items-center justify-between"><h2 class="font-semibold">Tu canasta</h2><button v-if="store.items.length" type="button" class="text-xs font-semibold text-slate-300 hover:text-white" @click="store.reset">Restablecer</button></div><p class="mt-1 text-sm text-slate-400">{{ selectedCity?.nombre ?? 'Elegí una ciudad' }}</p>
             <div v-if="store.items.length" class="mt-6 divide-y divide-white/10"><div v-for="item in store.items" :key="item.product.id" class="py-4 first:pt-0"><div class="flex items-start justify-between gap-3"><button type="button" class="shrink-0 rounded-lg" :aria-label="`Ver detalles de ${item.product.nombre}`" @click="selectedProduct = item.product"><ProductImage :src="item.product.image_url" :name="item.product.nombre" /></button><div class="min-w-0 flex-1 break-words"><button type="button" class="text-left text-sm font-medium text-white hover:underline" @click="selectedProduct = item.product">{{ item.product.nombre }}</button><p class="mt-1 text-xs text-slate-400">{{ item.product.marca }}</p></div><button type="button" class="text-slate-400 transition hover:text-rose-300" :aria-label="`Quitar ${item.product.nombre}`" @click="store.removeProduct(item.product.id)"><Trash2 class="size-4" /></button></div><div class="mt-3 flex items-center justify-between"><label class="sr-only" :for="`quantity-${item.product.id}`">Cantidad de {{ item.product.nombre }}</label><input :id="`quantity-${item.product.id}`" :value="item.quantity" min="0.1" step="0.1" type="number" class="w-20 rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 text-sm text-white" @input="store.updateQuantity(item.product.id, Number(($event.target as HTMLInputElement).value))" /><span class="text-xs text-slate-400">unidades</span></div></div></div>
             <div v-else class="mt-7 rounded-2xl border border-dashed border-white/20 p-5 text-center"><ShoppingBasket class="mx-auto size-5 text-sky-300" /><p class="mt-3 text-sm text-slate-300">Tu canasta está vacía.</p><p class="mt-1 text-xs leading-5 text-slate-500">Agregá productos desde el catálogo para calcular una recomendación.</p></div>
-            <button type="button" class="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 py-3 font-bold text-slate-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-45" :disabled="!store.items.length || !store.cityId || calculating || !store.hasValidWeights" @click="runRanking"><LoaderCircle v-if="calculating" class="size-4 animate-spin" /><Trophy v-else class="size-4" />{{ calculating ? 'Calculando…' : 'Calcular ranking' }}</button>
+            <button type="button" class="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 py-3 font-bold text-slate-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-45" :disabled="!store.items.length || !store.cityId || calculating || refreshing || !store.hasValidWeights" @click="runRanking"><LoaderCircle v-if="calculating" class="size-4 animate-spin" /><Trophy v-else class="size-4" />{{ calculating ? 'Calculando…' : 'Calcular ranking' }}</button>
           </aside>
         </div>
 
@@ -358,9 +407,11 @@ onMounted(initialize)
               <span class="inline-flex items-center gap-1.5 text-emerald-700"><BadgeCheck class="size-3.5" />Coordenadas verificadas</span>
             </div>
           </div>
-          <div v-if="ranking" class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2"><article v-for="result in ranking.ranking" :key="result.sucursal.id" class="rounded-3xl border p-5 shadow-sm" :class="result.posicion === 1 ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-100 bg-white'"><div class="flex items-start justify-between gap-4"><div class="flex gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-xl font-bold" :class="result.posicion === 1 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'">{{ result.posicion }}</span><div><p class="font-semibold">{{ result.sucursal.supermercado }}</p><p class="mt-1 text-sm text-slate-500">{{ result.sucursal.nombre }} · {{ result.sucursal.ciudad }}</p></div></div><span v-if="result.posicion === 1" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700"><BadgeCheck class="size-3" /> Recomendada</span></div><div class="mt-5 grid grid-cols-3 gap-2 text-center"><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Total</p><p class="mt-1 text-sm font-bold">{{ formatCurrency(result.total) }}</p></div><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Distancia</p><p class="mt-1 text-sm font-bold">{{ formatNumber(result.distancia_km) }} km</p></div><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Ahorro</p><p class="mt-1 text-sm font-bold text-emerald-700">{{ formatCurrency(result.ahorro) }}</p></div></div><div class="mt-4"><div class="flex justify-between text-xs font-medium text-slate-500"><span>Puntaje DSS</span><span>{{ Math.round(Number(result.puntaje) * 100) }}%</span></div><div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-sky-500 transition-all" :style="{ width: `${Math.max(Number(result.puntaje) * 100, 4)}%` }" /></div></div></article></div>
+          <div v-if="ranking" class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2"><article v-for="result in ranking.ranking" :key="result.sucursal.id" class="rounded-3xl border p-5 shadow-sm" :class="result.posicion === 1 ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-100 bg-white'"><div class="flex items-start justify-between gap-4"><div class="flex gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-xl font-bold" :class="result.posicion === 1 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'">{{ result.posicion }}</span><div><p class="font-semibold">{{ result.sucursal.supermercado }}</p><p class="mt-1 text-sm text-slate-500">{{ result.sucursal.nombre }} · {{ result.sucursal.ciudad }}</p></div></div><span v-if="result.posicion === 1" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700"><BadgeCheck class="size-3" /> Recomendada</span></div><p class="mt-3 text-sm font-semibold">{{ result.basket_type === 'substituted' ? 'Con sustituciones' : 'Lista original' }}</p><ul v-if="result.substitutions?.length" class="mt-2 space-y-1 text-sm text-slate-600"><li v-for="change in result.substitutions" :key="change.original_product_id">{{ change.original_name }} → {{ change.product.normalized_name }} · {{ change.quantity }} unidades</li></ul><button v-if="result.substitutions?.length" type="button" class="mt-2 inline-flex min-h-10 items-center gap-2 text-sm text-rose-700" @click="restoreBranch(result.sucursal.id); runRanking()"><RotateCcw class="size-4" />Restaurar lista original</button><div class="mt-5 grid grid-cols-3 gap-2 text-center"><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Total</p><p class="mt-1 text-sm font-bold">{{ formatCurrency(result.total) }}</p></div><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Distancia</p><p class="mt-1 text-sm font-bold">{{ formatNumber(result.distancia_km) }} km</p></div><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Ahorro</p><p class="mt-1 text-sm font-bold text-emerald-700">{{ formatCurrency(result.ahorro) }}</p></div></div><div class="mt-4"><div class="flex justify-between text-xs font-medium text-slate-500"><span>Puntaje DSS</span><span>{{ Math.round(Number(result.puntaje) * 100) }}%</span></div><div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-sky-500 transition-all" :style="{ width: `${Math.max(Number(result.puntaje) * 100, 4)}%` }" /></div></div></article></div>
           <div v-else class="mt-6 rounded-3xl border border-dashed border-slate-200 bg-white/50 p-10 text-center"><Trophy class="mx-auto size-6 text-sky-700" /><p class="mt-3 font-semibold text-slate-700">Todavía no hay resultados.</p><p class="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">Agregá al menos un producto y usá el botón “Calcular ranking”.</p></div>
-          <div v-if="ranking?.incomplete.length" class="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5"><p class="font-semibold text-amber-950">Sucursales sin cobertura completa</p><p class="mt-1 text-sm text-amber-800">No se incluyen en el ranking porque la canasta no tiene precios aptos para todos sus productos.</p><ul class="mt-3 space-y-2 text-sm text-amber-900"><li v-for="branch in ranking.incomplete" :key="branch.sucursal.id"><strong>{{ branch.sucursal.supermercado }} {{ branch.sucursal.nombre }}:</strong> {{ branch.productos_faltantes.map((item) => `${item.nombre} (${missingReasonLabel(item.motivo)})`).join(', ') }}</li></ul></div>
+          <p v-if="ranking && !ranking.ranking.length" class="mt-4 text-sm text-amber-900">No hay canastas completas con precios aptos. Podés consultar alternativas para los productos faltantes.</p>
+          <p v-if="ranking?.ranking.length" class="mt-4 text-xs text-slate-600">Ahorro respecto de la canasta completa más costosa de esta evaluación. La comparación puede incluir sustituciones aceptadas.</p>
+          <BranchSubstitutions :branches="substitutionBranches" :selections="selections" :suggestions="suggestions" :errors="substitutionErrors" :pending="substitutionPending" :busy="calculating || refreshing" @search="findSubstitutes" @select="chooseSubstitute" @restore="restoreBranch" @apply="runRanking" />
         </section>
       </template>
     </div>

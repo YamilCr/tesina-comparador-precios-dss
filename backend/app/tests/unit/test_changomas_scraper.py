@@ -18,6 +18,7 @@ def _product_payload(*, stock: int = 8, price: float = 12249) -> dict:
         "productId": "1140",
         "productName": "Fernet Branca 450 Ml",
         "brand": "Branca",
+        "categories": ["/Almacen/Bebidas/", "/Almacen/"],
         "link": "https://www.masonline.com.ar/fernet-branca-450-cc-2/p",
         "items": [
             {
@@ -48,6 +49,7 @@ def test_normalize_changomas_product_keeps_available_vtex_offer() -> None:
         "ean": "7790290001179",
         "name": "Fernet Branca 450 Ml",
         "brand": "Branca",
+        "categories": ["/Almacen/Bebidas/", "/Almacen/"],
         "price": 12249.0,
         "external_id": "1140",
         "source": "changomas",

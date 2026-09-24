@@ -262,7 +262,7 @@ async def test_etl_reuses_canonical_product_for_compact_brand_spelling(
     assert result.loaded == 1
     assert loaded_source is not None
     assert loaded_source.product_id == seed_data.coca_product_id
-    assert loaded_source.match_confidence == Decimal("0.899")
+    assert loaded_source.match_confidence == Decimal("0.900")
 
 
 @pytest.mark.asyncio
@@ -547,6 +547,8 @@ async def test_catalog_enrichment_backfills_consensus_brand_and_declared_gtin(
         assert publication is not None
         product_id = publication.producto_id
         publication.gtin = None
+        product = await session.get(ProductModel, product_id)
+        product.marca_id = None
         await session.commit()
 
     use_case = EnrichProductCatalogUseCase(unit_of_work)
@@ -554,7 +556,7 @@ async def test_catalog_enrichment_backfills_consensus_brand_and_declared_gtin(
 
     assert len(dry_run.brand_suggestions) == 1
     assert dry_run.brand_suggestions[0].brand_name == "Smirnoff"
-    assert dry_run.brand_suggestions[0].creates_brand is True
+    assert dry_run.brand_suggestions[0].creates_brand is False
     assert len(dry_run.gtin_suggestions) == 1
     assert dry_run.gtin_suggestions[0].gtin == valid_gtin
     assert dry_run.gtin_conflicts == []
@@ -570,7 +572,7 @@ async def test_catalog_enrichment_backfills_consensus_brand_and_declared_gtin(
         assert product is not None
         brand = await uow.brands.get_by_id(product.brand_id)
 
-    assert applied.created_brands == 1
+    assert applied.created_brands == 0
     assert applied.enriched_products == 1
     assert applied.enriched_product_sources == 1
     assert publication is not None and publication.gtin == valid_gtin

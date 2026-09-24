@@ -5,8 +5,13 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.modules.basket.application.use_cases.build_basket import BuildBasketUseCase
-from app.modules.catalog.domain.entities import ProductSource
 from app.modules.decision.application.commands import GenerateRankingCommand
+from app.modules.decision.application.branch_prices import load_branch_prices
+from app.modules.decision.application.substitutions import (
+    InvalidSubstitution,
+    candidate_payload,
+    validate_substitutions,
+)
 from app.modules.decision.application.dto.ranking_dto import (
     IncompleteBranchDTO,
     MissingProductDTO,
@@ -20,7 +25,6 @@ from app.modules.decision.domain.services import WeightedSumModel
 from app.modules.geo.domain.services import HaversineDistanceService
 from app.modules.geo.domain.value_objects import GeoPoint
 from app.modules.prices.domain.entities import Price
-from app.modules.prices.domain.services import PriceQualityPolicy, PriceQualitySelection
 from app.modules.supermarkets.domain.entities import Branch
 from app.shared.application import UnitOfWorkPort
 
@@ -51,11 +55,7 @@ class GenerateRankingUseCase:
         product_ids = basket.product_ids()
         quantities = {item.product_id: item.quantity for item in basket.items}
         evaluated_at = request.as_of or datetime.now(timezone.utc)
-        requested_branch_ids = (
-            set(request.branch_ids)
-            if request.branch_ids is not None
-            else None
-        )
+        requested_branch_ids = set(request.branch_ids) if request.branch_ids is not None else None
 
         async with self._unit_of_work as uow:
             product_names = await self._load_product_names(uow, product_ids)
@@ -77,6 +77,12 @@ class GenerateRankingUseCase:
                 and branch.coordinates_verified
             ]
             branch_by_id = {branch.id: branch for branch in branches}
+            replacements = await validate_substitutions(
+                uow,
+                request.substitutions,
+                product_ids,
+                branch_by_id,
+            )
             if not branch_by_id:
                 return RankingResponseDTO(
                     ranking=[],
@@ -92,28 +98,37 @@ class GenerateRankingUseCase:
                     ),
                 )
 
-            source_by_id, source_product_ids = await self._load_product_sources(uow, product_ids)
-            prices = await uow.prices.find_for_basket(product_ids=product_ids)
-            prices = self._filter_prices_for_candidate_supermarkets(
-                prices=prices,
-                branch_by_id=branch_by_id,
-                source_by_id=source_by_id,
+            effective_ids = set(product_ids) | {p.id for p, _ in replacements.values()}
+            pricing = await load_branch_prices(
+                uow,
+                list(effective_ids),
+                branch_by_id,
+                evaluated_at,
+                request.max_price_age_days,
             )
-            quality_selection = PriceQualityPolicy(
-                max_age_days=request.max_price_age_days
-            ).evaluate(prices, as_of=evaluated_at)
-            latest_prices = self._select_latest_valid_prices(
-                prices=quality_selection.eligible,
-                branch_by_id=branch_by_id,
-                source_by_id=source_by_id,
-                source_product_ids=source_product_ids,
+            latest_prices, quality_selection, exclusion_reasons = (
+                pricing.selected,
+                pricing.quality,
+                pricing.reasons,
             )
-            exclusion_reasons = self._build_exclusion_reasons(
-                selection=quality_selection,
-                branch_by_id=branch_by_id,
-                source_by_id=source_by_id,
-                source_product_ids=source_product_ids,
-            )
+            details_by_branch: dict[UUID, list[dict]] = {}
+            for (branch_id, original_id), (replacement, brands) in replacements.items():
+                price = latest_prices.get(branch_id, {}).get(replacement.id)
+                if price is None:
+                    raise InvalidSubstitution(
+                        branch_id,
+                        original_id,
+                        "El reemplazo ya no tiene un precio apto en esta cadena.",
+                    )
+                detail = candidate_payload(
+                    original_id, replacement, price, quantities[original_id], branch_id, brands
+                )
+                detail["original_name"] = product_names[original_id]
+                details_by_branch.setdefault(branch_id, []).append(detail)
+
+        def effective_product(branch_id, product_id):
+            replacement = replacements.get((branch_id, product_id))
+            return replacement[0].id if replacement else product_id
 
         complete_alternatives: list[Alternative] = []
         incomplete_branches: list[IncompleteBranchDTO] = []
@@ -125,7 +140,7 @@ class GenerateRankingUseCase:
             missing_product_ids = [
                 product_id
                 for product_id in product_ids
-                if product_id not in branch_prices
+                if effective_product(branch.id, product_id) not in branch_prices
             ]
             branch_dto = self._branch_to_ranking_dto(
                 branch=branch,
@@ -146,13 +161,21 @@ class GenerateRankingUseCase:
                             )
                             for product_id in missing_product_ids
                         ],
+                        distance_km=self._distance_service.calculate(
+                            origin,
+                            GeoPoint(latitude=branch.latitude, longitude=branch.longitude),
+                        ).kilometers,
+                        covered_products_count=len(product_ids) - len(missing_product_ids),
+                        total_products_count=len(product_ids),
+                        substitutions=details_by_branch.get(branch.id, []),
                     )
                 )
                 continue
 
             total_cost = sum(
                 (
-                    branch_prices[product_id].amount * quantities[product_id]
+                    branch_prices[effective_product(branch.id, product_id)].amount
+                    * quantities[product_id]
                     for product_id in product_ids
                 ),
                 Decimal("0"),
@@ -201,12 +224,20 @@ class GenerateRankingUseCase:
                     saving=result.saving,
                     score=result.score,
                     missing_products_count=result.missing_products_count,
+                    basket_type="substituted"
+                    if result.branch_id in details_by_branch
+                    else "original",
+                    substitutions=details_by_branch.get(result.branch_id, []),
                 )
                 for result in ranking
             ],
             incomplete_branches=sorted(
                 incomplete_branches,
-                key=lambda item: (len(item.missing_products), item.branch.supermarket_name, item.branch.name),
+                key=lambda item: (
+                    len(item.missing_products),
+                    item.distance_km,
+                    str(item.branch.id),
+                ),
             ),
             observed_at=observed_at,
             weights=request.weights,
@@ -218,47 +249,6 @@ class GenerateRankingUseCase:
                 suspect_excluded_count=len(quality_selection.suspect),
             ),
         )
-
-    @staticmethod
-    def _filter_prices_for_candidate_supermarkets(
-        *,
-        prices: list[Price],
-        branch_by_id: dict[UUID, Branch],
-        source_by_id: dict[UUID, ProductSource],
-    ) -> list[Price]:
-        candidate_supermarket_ids = {branch.supermarket_id for branch in branch_by_id.values()}
-        return [
-            price
-            for price in prices
-            if (source := source_by_id.get(price.product_source_id)) is not None
-            and source.supermarket_id in candidate_supermarket_ids
-        ]
-
-    @staticmethod
-    def _build_exclusion_reasons(
-        *,
-        selection: PriceQualitySelection,
-        branch_by_id: dict[UUID, Branch],
-        source_by_id: dict[UUID, ProductSource],
-        source_product_ids: dict[UUID, UUID],
-    ) -> dict[tuple[UUID, UUID], str]:
-        """Explica por qué un producto no quedó habilitado para una sucursal."""
-        reasons: dict[tuple[UUID, UUID], str] = {}
-        branches_by_supermarket: dict[UUID, list[Branch]] = {}
-        for branch in branch_by_id.values():
-            branches_by_supermarket.setdefault(branch.supermarket_id, []).append(branch)
-        for status, excluded_prices in (
-            ("stale", selection.stale),
-            ("suspect", selection.suspect),
-        ):
-            for price in excluded_prices:
-                source = source_by_id.get(price.product_source_id)
-                product_id = source_product_ids.get(price.product_source_id)
-                if source is None or product_id is None:
-                    continue
-                for branch in branches_by_supermarket.get(source.supermarket_id, []):
-                    reasons[(branch.id, product_id)] = status
-        return reasons
 
     @staticmethod
     async def _load_product_names(
@@ -285,61 +275,6 @@ class GenerateRankingUseCase:
             if supermarket is not None and supermarket.active:
                 names[supermarket.id] = supermarket.name
         return names
-
-    @staticmethod
-    async def _load_product_sources(
-        uow: UnitOfWorkPort,
-        product_ids: list[UUID],
-    ) -> tuple[dict[UUID, ProductSource], dict[UUID, UUID]]:
-        """Carga publicaciones activas y permite mapear precio hacia producto."""
-        source_by_id = {}
-        source_product_ids = {}
-        for product_id in product_ids:
-            product_sources = await uow.product_sources.find_by_product(product_id)
-            for source in product_sources:
-                if not source.active:
-                    continue
-                source_by_id[source.id] = source
-                source_product_ids[source.id] = source.product_id
-        return source_by_id, source_product_ids
-
-    @staticmethod
-    def _select_latest_valid_prices(
-        prices: list[Price],
-        branch_by_id: dict[UUID, Branch],
-        source_by_id: dict[UUID, ProductSource],
-        source_product_ids: dict[UUID, UUID],
-    ) -> dict[UUID, dict[UUID, Price]]:
-        """Selecciona precio directo y completa faltantes con precio inferido por cadena."""
-        latest: dict[UUID, dict[UUID, Price]] = {}
-        latest_by_supermarket: dict[tuple[UUID, UUID], Price] = {}
-        for price in prices:
-            if not price.available:
-                continue
-
-            branch = branch_by_id.get(price.branch_id)
-            source = source_by_id.get(price.product_source_id)
-            product_id = source_product_ids.get(price.product_source_id)
-            if source is None or product_id is None:
-                continue
-
-            supermarket_key = (source.supermarket_id, product_id)
-            current_supermarket_price = latest_by_supermarket.get(supermarket_key)
-            if _is_better_current_price(price, current_supermarket_price):
-                latest_by_supermarket[supermarket_key] = price
-
-            if branch is None or source.supermarket_id != branch.supermarket_id:
-                continue
-            current_branch_price = latest.setdefault(branch.id, {}).get(product_id)
-            if _is_better_current_price(price, current_branch_price):
-                latest[branch.id][product_id] = price
-
-        for branch in branch_by_id.values():
-            branch_prices = latest.setdefault(branch.id, {})
-            for (supermarket_id, product_id), price in latest_by_supermarket.items():
-                if supermarket_id == branch.supermarket_id and product_id not in branch_prices:
-                    branch_prices[product_id] = price
-        return latest
 
     @staticmethod
     def _latest_observed_at(
@@ -369,11 +304,3 @@ class GenerateRankingUseCase:
             latitude=branch.latitude,
             longitude=branch.longitude,
         )
-
-
-def _is_better_current_price(candidate: Price, current: Price | None) -> bool:
-    if current is None:
-        return True
-    if candidate.observed_at > current.observed_at:
-        return True
-    return candidate.observed_at == current.observed_at and candidate.amount < current.amount

@@ -8,6 +8,7 @@ def test_normalize_jumbo_product_keeps_the_extractable_fields() -> None:
         "productId": "12345",
         "productName": "Coca Cola Original 2.25 L",
         "brand": "Coca Cola",
+        "categories": ["/Almacen/Bebidas/", "/Almacen/"],
         "linkText": "coca-cola-original-225-l",
         "items": [
             {
@@ -24,6 +25,7 @@ def test_normalize_jumbo_product_keeps_the_extractable_fields() -> None:
         "ean": "7790895000997",
         "name": "Coca Cola Original 2.25 L",
         "brand": "Coca Cola",
+        "categories": ["/Almacen/Bebidas/", "/Almacen/"],
         "price": 3500.5,
         "external_id": "12345",
         "source": "jumbo",

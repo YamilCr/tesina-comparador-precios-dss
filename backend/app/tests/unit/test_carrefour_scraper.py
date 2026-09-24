@@ -19,6 +19,7 @@ def test_normalize_carrefour_product_uses_an_available_seller() -> None:
         "productId": "12345",
         "productName": "Coca Cola Original 2.25 L",
         "brand": "Coca Cola",
+        "categories": ["/Almacen/Bebidas/", "/Almacen/"],
         "linkText": "coca-cola-original-225-l",
         "items": [
             {
@@ -38,6 +39,7 @@ def test_normalize_carrefour_product_uses_an_available_seller() -> None:
         "ean": "7790895000997",
         "name": "Coca Cola Original 2.25 L",
         "brand": "Coca Cola",
+        "categories": ["/Almacen/Bebidas/", "/Almacen/"],
         "price": 3500.5,
         "external_id": "12345",
         "source": "carrefour",
@@ -90,6 +92,7 @@ async def test_carrefour_uses_the_confirmed_vtex_sales_channel() -> None:
                 "productId": "12345",
                 "productName": "Coca Cola Original 2.25 L",
                 "brand": "Coca Cola",
+                "categories": ["/Almacen/Bebidas/", "/Almacen/"],
                 "items": [
                     {
                         "ean": "7790895000997",

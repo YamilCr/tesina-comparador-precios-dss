@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1260" viewBox="0 0 1600 1260" role="img" aria-labelledby="title description"><title id="title">Arquitectura actual del sistema DSS</title><desc id="description">Cliente Vue y backend FastAPI modular con ingesta, catalogo, busqueda y ranking. Puertos hacia seis fuentes, PostgreSQL y Chroma local.</desc><defs><marker id="ink" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#202b31"/></marker><marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#197158"/></marker><marker id="rust" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#a04346"/></marker><marker id="blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#28617c"/></marker></defs><rect width="100%" height="100%" fill="white"/><g font-family="Segoe UI, Arial, sans-serif"><text x="40" y="52" font-size="34" fill="#202b31" font-weight="700" text-anchor="start">Arquitectura actual del sistema DSS</text>
+<text x="40" y="86" font-size="20" fill="#526269" font-weight="400" text-anchor="start">Comparador de precios por ubicación | Vista lógica de componentes</text>
+<text x="1560" y="52" font-size="16" fill="#526269" font-weight="600" text-anchor="end">14 SEP 2026</text>
+<rect x="40" y="125" width="240" height="128" rx="8" fill="#f5f7f7" stroke="#c4ced0" stroke-width="1.6"/>
+<text x="62" y="163" font-size="25" fill="#202b31" font-weight="700" text-anchor="start">Usuario</text>
+<text x="62" y="196" font-size="18" fill="#526269" font-weight="400" text-anchor="start">Canasta y cantidades</text>
+<text x="62" y="225" font-size="18" fill="#526269" font-weight="400" text-anchor="start">Ubicación y preferencias</text>
+<rect x="360" y="125" width="675" height="128" rx="8" fill="#eef6f3" stroke="#197158" stroke-width="1.6"/>
+<text x="385" y="160" font-size="25" fill="#197158" font-weight="700" text-anchor="start">Frontend web | Vue 3 + TypeScript</text>
+<text x="385" y="191" font-size="19" fill="#526269" font-weight="400" text-anchor="start">Router + Pinia | Canasta en localStorage</text>
+<text x="385" y="220" font-size="19" fill="#526269" font-weight="400" text-anchor="start">Catálogo, modal, precios, ranking y mapa Leaflet</text>
+<path d="M 285 190 H 352" fill="none" stroke="#202b31" stroke-width="2.2" marker-end="url(#ink)" marker-start="url(#ink)"/>
+<rect x="1140" y="125" width="420" height="128" rx="8" fill="#f7f8f8" stroke="#c4ced0" stroke-width="1.6"/>
+<text x="1163" y="160" font-size="23" fill="#202b31" font-weight="700" text-anchor="start">Recursos del navegador</text>
+<text x="1163" y="191" font-size="18" fill="#526269" font-weight="400" text-anchor="start">Geolocalización del dispositivo</text>
+<text x="1163" y="220" font-size="18" fill="#526269" font-weight="400" text-anchor="start">Mapas OSM e imágenes por URL</text>
+<path d="M 1040 190 H 1132" fill="none" stroke="#202b31" stroke-width="2.2" marker-end="url(#ink)" marker-start="url(#ink)" stroke-dasharray="7 5"/>
+<text x="945" y="289" font-size="17" fill="#526269" font-weight="400" text-anchor="start">HTTP / JSON</text>
+<rect x="40" y="325" width="1520" height="555" rx="8" fill="#f7f9f8" stroke="#9badb1" stroke-width="1.6"/>
+<text x="64" y="356" font-size="21" fill="#202b31" font-weight="700" text-anchor="start">BACKEND: MONOLITO MODULAR | FastAPI + Python</text>
+<rect x="80" y="380" width="1440" height="65" rx="8" fill="#ffffff" stroke="#9badb1" stroke-width="1.6"/>
+<path d="M 925 258 V 378" fill="none" stroke="#202b31" stroke-width="2.2" marker-end="url(#ink)" marker-start="url(#ink)"/>
+<text x="105" y="419" font-size="22" fill="#202b31" font-weight="600" text-anchor="start">Adaptadores HTTP /api/v1  |  Validación de entradas, DTO y manejo de errores</text>
+<path d="M 300 445 V 480" fill="none" stroke="#197158" stroke-width="2.2" marker-end="url(#green)"/>
+<path d="M 780 445 V 480" fill="none" stroke="#28617c" stroke-width="2.2" marker-end="url(#blue)"/>
+<path d="M 1280 445 V 480" fill="none" stroke="#a04346" stroke-width="2.2" marker-end="url(#rust)"/>
+<rect x="80" y="490" width="440" height="210" rx="8" fill="#eef6f3" stroke="#197158" stroke-width="1.6"/>
+<text x="103" y="526" font-size="24" fill="#197158" font-weight="700" text-anchor="start">Ingesta y calidad de datos</text>
+<text x="103" y="558" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Actualización manual + scheduler opcional</text>
+<text x="103" y="586" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">asyncio: tareas, semáforos y cola</text>
+<text x="103" y="614" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Staging, validación y carga ETL</text>
+<text x="103" y="642" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Regex + GTIN + reglas + RapidFuzz</text>
+<text x="103" y="670" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Ambigüedad y revisión de identidad</text>
+<rect x="560" y="490" width="440" height="210" rx="8" fill="#f0f6f9" stroke="#28617c" stroke-width="1.6"/>
+<text x="583" y="526" font-size="24" fill="#28617c" font-weight="700" text-anchor="start">Catálogo y búsqueda</text>
+<text x="583" y="558" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">1. Coincidencias textuales primero</text>
+<text x="583" y="586" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">2. Si no hay, candidatos semánticos</text>
+<text x="583" y="614" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">3. Verificar activos en PostgreSQL</text>
+<text x="583" y="642" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Sin fusión de identidades por vectores</text>
+<text x="583" y="670" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Detalle de precios, marcas e imágenes</text>
+<rect x="1040" y="490" width="480" height="210" rx="8" fill="#fcf1f1" stroke="#a04346" stroke-width="1.6"/>
+<text x="1063" y="526" font-size="24" fill="#a04346" font-weight="700" text-anchor="start">Comparación y decisión</text>
+<text x="1063" y="558" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Canasta y sucursales elegibles</text>
+<text x="1063" y="586" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Vigencia, disponibilidad y anomalías</text>
+<text x="1063" y="614" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Precio propio o referencia de la cadena</text>
+<text x="1063" y="642" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Distancias Haversine + pesos del usuario</text>
+<text x="1063" y="670" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Ranking mediante suma ponderada (WSM)</text>
+<path d="M 300 704 V 756" fill="none" stroke="#197158" stroke-width="2.2" marker-end="url(#green)"/>
+<path d="M 780 704 V 756" fill="none" stroke="#28617c" stroke-width="2.2" marker-end="url(#blue)"/>
+<path d="M 1280 704 V 756" fill="none" stroke="#a04346" stroke-width="2.2" marker-end="url(#rust)"/>
+<rect x="80" y="767" width="1440" height="82" rx="8" fill="#ffffff" stroke="#9badb1" stroke-width="1.6"/>
+<text x="103" y="797" font-size="21" fill="#202b31" font-weight="700" text-anchor="start">Puertos y adaptadores de infraestructura</text>
+<text x="103" y="828" font-size="18" fill="#526269" font-weight="400" text-anchor="start">ScraperPort: aiohttp / Playwright</text>
+<text x="583" y="828" font-size="18" fill="#526269" font-weight="400" text-anchor="start">UnitOfWorkPort: SQLAlchemy / Alembic</text>
+<text x="1090" y="828" font-size="18" fill="#526269" font-weight="400" text-anchor="start">ProductSearchIndexPort: Chroma / E5</text>
+<path d="M 300 851 V 942" fill="none" stroke="#197158" stroke-width="2.2" marker-end="url(#green)" marker-start="url(#green)"/>
+<path d="M 780 851 V 942" fill="none" stroke="#202b31" stroke-width="2.2" marker-end="url(#ink)" marker-start="url(#ink)"/>
+<path d="M 1280 851 V 942" fill="none" stroke="#28617c" stroke-width="2.2" marker-end="url(#blue)" marker-start="url(#blue)"/>
+<text x="318" y="915" font-size="17" fill="#197158" font-weight="400" text-anchor="start">HTTP / navegador</text>
+<text x="800" y="915" font-size="17" fill="#526269" font-weight="400" text-anchor="start">Transacciones SQL</text>
+<text x="1300" y="915" font-size="17" fill="#28617c" font-weight="400" text-anchor="start">API local embebida</text>
+<rect x="80" y="955" width="440" height="178" rx="8" fill="#eef6f3" stroke="#197158" stroke-width="1.6"/>
+<text x="103" y="991" font-size="24" fill="#197158" font-weight="700" text-anchor="start">Fuentes externas</text>
+<text x="103" y="1024" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Carrefour, Chango Más y Jumbo</text>
+<text x="103" y="1053" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">La Coope, La Anónima y Maxiconsumo</text>
+<text x="103" y="1082" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Catálogos públicos: HTTP / JSON / HTML</text>
+<text x="103" y="1111" font-size="17" fill="#526269" font-weight="400" text-anchor="start">Extracción; no confirma stock físico.</text>
+<rect x="560" y="955" width="440" height="178" rx="8" fill="#f5f7f7" stroke="#6a7c83" stroke-width="1.6"/>
+<text x="583" y="991" font-size="25" fill="#202b31" font-weight="700" text-anchor="start">PostgreSQL</text>
+<text x="583" y="1024" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Datos de negocio y trazabilidad</text>
+<text x="583" y="1053" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Productos, publicaciones, precios y sedes</text>
+<text x="583" y="1082" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Staging, revisiones y planes de ingesta</text>
+<text x="583" y="1111" font-size="17" fill="#526269" font-weight="400" text-anchor="start">Persistencia principal; fuente de verdad.</text>
+<rect x="1040" y="955" width="480" height="178" rx="8" fill="#f0f6f9" stroke="#28617c" stroke-width="1.6"/>
+<text x="1063" y="991" font-size="25" fill="#28617c" font-weight="700" text-anchor="start">ChromaDB persistente local</text>
+<text x="1063" y="1024" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Embeddings: multilingual-e5-small</text>
+<text x="1063" y="1053" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Colección product_search_v1 | coseno</text>
+<text x="1063" y="1082" font-size="18" fill="#202b31" font-weight="400" text-anchor="start">Archivos: backend/.chroma/product_search</text>
+<text x="1063" y="1111" font-size="17" fill="#526269" font-weight="400" text-anchor="start">Índice derivado; no es una tabla PostgreSQL.</text>
+<path d="M 40 1170 H 1560" stroke="#c4ced0"/>
+<text x="40" y="1201" font-size="20" fill="#202b31" font-weight="600" text-anchor="start">Identidad: reglas conservadoras. Búsqueda: similitud. Decisión: WSM. Son responsabilidades distintas.</text>
+<text x="40" y="1231" font-size="18" fill="#526269" font-weight="400" text-anchor="start">El ETL confirma primero en PostgreSQL y luego intenta indexar productos nuevos. El índice se puede reconstruir por script.</text></g></svg>

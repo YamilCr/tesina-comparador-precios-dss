@@ -5,14 +5,19 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.dependencies import get_unit_of_work
+from app.dependencies import get_unit_of_work, ProductSearchIndexDependency
+from app.modules.decision.application.commands.generate_ranking_command import SubstitutionInput
+from app.modules.decision.application.substitutions import (
+    InvalidSubstitution,
+    SuggestSubstitutionsUseCase,
+)
 from app.modules.basket.application.dto import BasketItemInputDTO
 from app.modules.decision.application.dto import RankingRequestDTO
 from app.modules.decision.application.use_cases import GenerateRankingUseCase
 from app.modules.decision.domain.value_objects import CriteriaWeights
 from app.shared.application import UnitOfWorkPort
 
-from .schemas import RankingRequest
+from .schemas import RankingRequest, SuggestionsRequest
 
 
 router = APIRouter(prefix="/decisions", tags=["decision"])
@@ -82,11 +87,17 @@ def _ranking_payload(response) -> dict:
                 "saving": str(result.saving),
                 "score": str(result.score),
                 "missing_products_count": result.missing_products_count,
+                "basket_type": result.basket_type,
+                "substitutions": result.substitutions,
             }
             for result in response.ranking
         ],
         "incomplete_branches": [
             {
+                "distance_km": str(item.distance_km),
+                "covered_products_count": item.covered_products_count,
+                "total_products_count": item.total_products_count,
+                "substitutions": item.substitutions,
                 "branch": {
                     "id": str(item.branch.id),
                     "supermarket_id": str(item.branch.supermarket_id),
@@ -135,8 +146,13 @@ async def calculate_ranking(request: RankingRequest, uow: UnitOfWorkDependency) 
                 ),
                 as_of=request.as_of,
                 max_price_age_days=request.max_price_age_days,
+                substitutions=[
+                    SubstitutionInput(**item.model_dump()) for item in request.substitutions
+                ],
             )
         )
+    except InvalidSubstitution as error:
+        raise HTTPException(status_code=422, detail=error.detail) from error
     except ValueError as error:
         status_code = (
             status.HTTP_404_NOT_FOUND
@@ -146,3 +162,23 @@ async def calculate_ranking(request: RankingRequest, uow: UnitOfWorkDependency) 
         raise HTTPException(status_code=status_code, detail=str(error)) from error
 
     return _ranking_payload(response)
+
+
+@router.post("/substitutions")
+async def suggest_substitutions(
+    request: SuggestionsRequest,
+    uow: UnitOfWorkDependency,
+    search_index: ProductSearchIndexDependency,
+) -> dict:
+    try:
+        return await SuggestSubstitutionsUseCase(uow, search_index).execute(
+            request.branch_id,
+            [
+                BasketItemInputDTO(product_id=item.product_id, quantity=item.quantity)
+                for item in request.items
+            ],
+            as_of=request.as_of,
+            max_price_age_days=request.max_price_age_days,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error

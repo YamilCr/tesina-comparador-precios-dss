@@ -10,6 +10,13 @@ from app.modules.decision.domain.value_objects import CriteriaWeights
 
 
 @dataclass(frozen=True)
+class SubstitutionInput:
+    branch_id: UUID
+    original_product_id: UUID
+    replacement_product_id: UUID
+
+
+@dataclass(frozen=True)
 class GenerateRankingCommand:
     """Solicitud de cálculo de ranking para una canasta temporal."""
 
@@ -20,6 +27,7 @@ class GenerateRankingCommand:
     weights: CriteriaWeights = field(default_factory=CriteriaWeights)
     as_of: datetime | None = None
     max_price_age_days: int = 14
+    substitutions: list[SubstitutionInput] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Valida canasta, coordenadas y sucursales opcionales."""

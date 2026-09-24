@@ -81,6 +81,7 @@ export interface RankingWeights {
 }
 
 export interface RankingRequest {
+  substitutions?: SubstitutionSelection[]
   city_id: string
   branch_ids?: string[]
   origin_latitude?: number
@@ -98,6 +99,8 @@ export interface RankingOrigin {
 }
 
 export interface RankedBranch {
+  basket_type?: 'original' | 'substituted'
+  substitutions?: SubstitutionCandidate[]
   posicion: number
   sucursal: Branch
   total: string
@@ -107,6 +110,11 @@ export interface RankedBranch {
 }
 
 export interface IncompleteBranch {
+  accepted_substitutions?: boolean
+  distance_km?: string
+  covered_products_count?: number
+  total_products_count?: number
+  substitutions?: SubstitutionCandidate[]
   sucursal: Branch
   productos_faltantes: Array<{
     id: string
@@ -172,6 +180,7 @@ export interface LiveRefreshResponse {
 }
 
 export interface DataClient {
+  substitutions(request: SuggestionsRequest): Promise<SuggestionsResponse>
   health(): Promise<{ status: string; service: string }>
   products(query?: string): Promise<Paginated<Product>>
   categories(): Promise<{ items: Category[] }>
@@ -182,4 +191,60 @@ export interface DataClient {
   scrapingSources(): Promise<{ items: ScrapingSource[] }>
   refreshPrices(request: LiveRefreshRequest): Promise<LiveRefreshResponse>
   ranking(request: RankingRequest): Promise<RankingResponse>
+}
+
+export interface SubstitutionSelection {
+  branch_id: string
+  original_product_id: string
+  replacement_product_id: string
+}
+
+export interface SubstitutionCandidate {
+  original_product_id: string
+  original_name?: string
+  product: {
+    id: string
+    normalized_name: string
+    brand_name: string | null
+    image_url?: string | null
+    unit_measure: string | null
+    net_content: string | null
+    base_quantity?: string | null
+    base_unit?: string | null
+    pack_size?: number | null
+  }
+  quantity: string
+  unit_price: string
+  subtotal: string
+  currency: string
+  observed_at: string
+  price_branch_id: string
+  inferred_from_chain: boolean
+  compatibility_reason: string
+}
+
+export interface SuggestionsRequest {
+  branch_id: string
+  items: RankingRequest['items']
+  max_price_age_days?: number
+}
+
+export interface SuggestionsResponse {
+  branch_id: string
+  evaluated_at: string
+  items: Array<{
+    original: SubstitutionCandidate['product']
+    quantity: string
+    reason: 'missing' | 'stale' | 'suspect'
+    candidates: SubstitutionCandidate[]
+    diagnostics?: SubstitutionDiagnostics
+  }>
+}
+
+export interface SubstitutionDiagnostics {
+  code: 'available' | 'insufficient_attributes' | 'no_chain_products' | 'no_compatible_products' | 'no_suitable_prices'
+  compatible_products: number
+  stale_products: number
+  suspect_products: number
+  max_price_age_days: number
 }

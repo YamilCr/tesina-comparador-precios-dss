@@ -27,6 +27,26 @@ class RankingWeightsRequest(BaseModel):
         return self
 
 
+class SubstitutionRequest(BaseModel):
+    branch_id: UUID
+    original_product_id: UUID
+    replacement_product_id: UUID
+
+
+class SuggestionsRequest(BaseModel):
+    branch_id: UUID
+    items: list[BasketLineRequest] = Field(min_length=1, max_length=100)
+    as_of: datetime | None = None
+    max_price_age_days: int = Field(default=14, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def unique_products(self):
+        ids = [item.product_id for item in self.items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Cada producto debe aparecer una sola vez en la canasta.")
+        return self
+
+
 class RankingRequest(BaseModel):
     """Solicitud HTTP para calcular un ranking DSS."""
 
@@ -38,6 +58,7 @@ class RankingRequest(BaseModel):
     weights: RankingWeightsRequest = Field(default_factory=RankingWeightsRequest)
     as_of: datetime | None = None
     max_price_age_days: int = Field(default=14, ge=1, le=90)
+    substitutions: list[SubstitutionRequest] = Field(default_factory=list, max_length=10000)
 
     @model_validator(mode="after")
     def validate_request(self) -> "RankingRequest":

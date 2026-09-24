@@ -324,12 +324,13 @@ def analyze_matching_quality(
     matcher = ProductIdentityMatcher()
     details = []
     for case in cases:
-        match = matcher.match(
+        decision = matcher.assess(
             name=case["source_name"],
             presentation=case["presentation"] or None,
             brand=case["source_brand"] or None,
             candidates=candidates,
         )
+        match = decision.match
         predicted = match.product.internal_code if match is not None else ""
         expected = case["expected_internal_code"]
         if expected and predicted == expected:
@@ -346,6 +347,8 @@ def analyze_matching_quality(
             {
                 **case,
                 "predicted_internal_code": predicted,
+                "decision": decision.status,
+                "review_candidates": "|".join(str(value) for value in decision.candidate_ids),
                 "match_method": match.method if match is not None else "abstain",
                 "confidence": str(match.confidence) if match is not None else "",
                 "outcome": outcome,

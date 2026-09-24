@@ -245,6 +245,7 @@ def normalize_changomas_product(
         "ean": ean or product_id,
         "name": product_name,
         "brand": item.get("brand") or None,
+        "categories": item.get("categories"),
         "price": float(price),
         "external_id": product_id,
         "source": CHAIN_SLUG,

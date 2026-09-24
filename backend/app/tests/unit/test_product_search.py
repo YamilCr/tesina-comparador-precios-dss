@@ -211,3 +211,18 @@ class _FakeSearchIndex:
 class _FailingSearchIndex:
     async def search(self, query: str, top_k: int) -> list[ProductSearchHit]:
         raise RuntimeError("index unavailable")
+
+
+@pytest.mark.asyncio
+async def test_brand_text_results_are_not_padded_with_unrelated_semantic_hits():
+    products = [
+        _product(COCA_ID, "Sconcitos 9 de Oro 200 g"),
+        _product(MILK_ID, "Aceite Siglo de Oro 900 ml"),
+        _product(ZERO_ID, "Zorro suavizante 900 ml"),
+    ]
+    index = _FakeSearchIndex([ProductSearchHit(MILK_ID, 0.95), ProductSearchHit(ZERO_ID, 0.90)])
+    result = await SearchProductsUseCase(
+        _FakeUnitOfWork(products), index, vector_search_enabled=True,
+    ).execute(SearchProductsQuery(query="9 de oro", limit=20))
+    assert [product.id for product in result] == [COCA_ID]
+    assert index.queries == []

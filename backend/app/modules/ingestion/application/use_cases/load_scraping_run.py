@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from app.modules.catalog.domain.entities import Product, ProductSource
+from app.modules.catalog.domain.entities import Brand, Product, ProductCategory, ProductSource
+from app.modules.ingestion.application.category_evidence import category_from_payload
 from app.modules.catalog.application.services import build_product_search_entry
 from app.modules.catalog.domain.ports import ProductSearchIndexEntry, ProductSearchIndexPort
 from app.modules.ingestion.application.dto import EtlLoadResultDTO
@@ -73,6 +74,10 @@ class LoadScrapingRunUseCase:
             ]
             catalog = await self._build_catalog_identity_state(uow)
             matcher = ProductIdentityMatcher()
+            categories = {
+                category.name.casefold(): category
+                for category in await uow.product_categories.list_active()
+            }
             seen_external_codes: set[str] = set()
             result = _MutableEtlResult(run_id=run_id)
 
@@ -135,6 +140,12 @@ class LoadScrapingRunUseCase:
                             normalized.identity.quantity
                         )
                         brand_id, brand_name = catalog.find_brand(staged.brand)
+                        if brand_id is None and staged.brand and normalized_token_set(staged.brand) not in {
+                            frozenset(), normalized_token_set("sin marca"), normalized_token_set("generico"),
+                        }:
+                            brand_entity = await uow.brands.save(Brand(id=uuid4(), name=staged.brand))
+                            brand_id, brand_name = brand_entity.id, brand_entity.name
+                            catalog.brands_by_tokens[normalized_token_set(brand_name)] = (brand_id, brand_name)
                         product = await uow.products.save(
                             Product(
                                 id=uuid4(),
@@ -144,6 +155,16 @@ class LoadScrapingRunUseCase:
                                 net_content=net_content,
                             )
                         )
+                        category_name = category_from_payload(staged.raw_payload)
+                        if category_name:
+                            category = categories.get(category_name.casefold())
+                            if category is None:
+                                category = await uow.product_categories.save(
+                                    ProductCategory(id=uuid4(), name=category_name)
+                                )
+                                categories[category_name.casefold()] = category
+                            product.category_id = category.id
+                            product = await uow.products.save(product)
                         catalog.add_product(product, brand_name=brand_name)
                         created_search_entries.append(
                             build_product_search_entry(product, brand_name=brand_name)
@@ -244,19 +265,30 @@ class LoadScrapingRunUseCase:
                 if product is not None:
                     return product, Decimal("1.000"), None
 
-        match = matcher.match(
+        decision = matcher.assess(
             name=normalized.name,
             presentation=normalized.original_unit,
             brand=brand,
             candidates=catalog.candidates,
         )
+        if decision.status == "review_required":
+            candidates = ", ".join(str(value) for value in decision.candidate_ids[:20])
+            return None, None, (
+                f"{decision.reason} Candidates ({len(decision.candidate_ids)} total): {candidates}"
+            )
+        match = decision.match
         if match is None:
             return None, None, None
         return match.product, match.confidence, None
 
     @staticmethod
     async def _build_catalog_identity_state(uow: UnitOfWorkPort) -> "_CatalogIdentityState":
-        products = await uow.products.list_active(limit=1000)
+        products = []
+        while True:
+            batch = await uow.products.list_active(limit=1000, offset=len(products))
+            products.extend(batch)
+            if len(batch) < 1000:
+                break
         brands = await uow.brands.list_active()
         brand_names = {brand.id: brand.name for brand in brands}
         return _CatalogIdentityState(
