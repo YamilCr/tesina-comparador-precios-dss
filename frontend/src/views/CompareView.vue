@@ -57,6 +57,7 @@ const products = ref<Product[]>([])
 const selectedProduct = ref<Product | null>(null)
 const productQuery = ref('')
 const ranking = ref<RankingResponse | null>(null)
+const alternativesDirty = ref(false)
 const substitutionBranches = ref<IncompleteBranch[]>([])
 const { selections, suggestions, errors: substitutionErrors, pending: substitutionPending,
   invalidate: invalidateSuggestions, search: searchSubstitutions, select, restore } = useSubstitutions(api)
@@ -65,16 +66,23 @@ let pricesVersion = 0
 const invalidateRanking = () => {
   rankingVersion++
   ranking.value = null
+  alternativesDirty.value = false
   calculating.value = false
   error.value = ''
 }
 const chooseSubstitute = (branch: string, original: string, replacement: string | null) => {
   select(branch, original, replacement)
-  invalidateRanking()
+  markAlternativesChanged()
 }
 const restoreBranch = (branch: string) => {
   restore(branch)
-  invalidateRanking()
+  markAlternativesChanged()
+}
+const markAlternativesChanged = () => {
+  rankingVersion++
+  calculating.value = false
+  error.value = ''
+  alternativesDirty.value = true
 }
 const findSubstitutes = (branchId: string) => searchSubstitutions({
   branch_id: branchId,
@@ -281,6 +289,7 @@ const runRanking = async () => {
       branch_id: representativeByChain.get(chainByBranch.get(selection.branch_id) ?? '') ?? selection.branch_id,
     }))
     ranking.value = response
+    alternativesDirty.value = false
     // Keep accepted branches editable even after they become complete.
     substitutionBranches.value = [
       ...response.incomplete,
@@ -440,6 +449,7 @@ onMounted(initialize)
           <div v-if="ranking" class="mt-4 flex flex-wrap gap-2 text-xs font-semibold"><span class="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">{{ ranking.calidad.precios_aptos }} precios aptos</span><span v-if="ranking.calidad.precios_vencidos" class="rounded-full bg-amber-50 px-3 py-1.5 text-amber-800">{{ ranking.calidad.precios_vencidos }} vencidos</span><span v-if="ranking.calidad.precios_sospechosos" class="rounded-full bg-rose-50 px-3 py-1.5 text-rose-700">{{ ranking.calidad.precios_sospechosos }} anómalos</span></div>
           <div v-if="ranking" class="mt-6">
             <RankingMap :origin="ranking.origen" :ranking="ranking.ranking" :incomplete="ranking.incomplete" />
+            <p v-if="alternativesDirty" role="status" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Estos resultados corresponden a la última comparación. Confirmá tus reemplazos para actualizar los importes.</p>
             <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-slate-600">
               <span class="inline-flex items-center gap-2"><i class="size-2.5 rounded-full bg-sky-400 ring-2 ring-slate-900" />Origen</span>
               <span class="inline-flex items-center gap-2"><i class="size-2.5 rounded-full bg-emerald-400 ring-2 ring-emerald-700" />Recomendada</span>
@@ -466,7 +476,7 @@ onMounted(initialize)
           <p v-if="ranking && !ranking.ranking.length" class="mt-4 text-sm text-amber-900">No hay canastas completas con importes calculables. Podés consultar alternativas para los productos faltantes.</p>
           <p v-if="ranking?.ranking.some((result) => result.has_outdated_prices)" class="mt-4 text-xs font-medium text-amber-800">Los importes estimados usan el último precio publicado de los sustitutos indicados; podrían no reflejar el precio actual.</p>
           <p v-if="ranking?.ranking.length" class="mt-4 text-xs text-slate-600">Precios publicados en la cadena; disponibilidad inferida y stock físico no confirmado. Ahorro respecto de la canasta completa más costosa de esta evaluación. Los sustitutos pueden tener otra variante o presentación: el cálculo conserva la cantidad de envases elegida, no iguala el contenido neto.</p>
-          <BranchSubstitutions :branches="substitutionBranches" :selections="selections" :suggestions="suggestions" :errors="substitutionErrors" :pending="substitutionPending" :busy="calculating || refreshing" @search="findSubstitutes" @select="chooseSubstitute" @restore="restoreBranch" @apply="runRanking" />
+          <BranchSubstitutions :dirty="alternativesDirty" :branches="substitutionBranches" :selections="selections" :suggestions="suggestions" :errors="substitutionErrors" :pending="substitutionPending" :busy="calculating || refreshing" @search="findSubstitutes" @select="chooseSubstitute" @restore="restoreBranch" @apply="runRanking" />
         </section>
       </template>
     </div>
