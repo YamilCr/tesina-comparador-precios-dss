@@ -59,6 +59,7 @@ class RankingResultDTO:
     score: Decimal
     missing_products_count: int = 0
     basket_type: str = "original"
+    has_outdated_prices: bool = False
     substitutions: list[dict] = field(default_factory=list)
 
 

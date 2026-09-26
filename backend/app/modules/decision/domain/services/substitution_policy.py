@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -41,6 +42,22 @@ PACK = re.compile(
 )
 COUNTS = re.compile(r"\b(\d+)\s*(?:unidades|unidad|un|u)\b")
 ARTICLES = {"de", "del", "el", "la", "los", "las", "en"}
+PROTECTED_BRAND_WORDS = {
+    "sin",
+    "con",
+    "gluten",
+    "lactosa",
+    "azucar",
+    "integral",
+    "light",
+    "zero",
+    "original",
+    "descremada",
+    "entera",
+    "parboil",
+    "parboilizado",
+}
+RICE_LONG_REFINEMENTS = {"fino", "00000"}
 
 
 def normalized_text(value: str) -> str:
@@ -48,6 +65,18 @@ def normalized_text(value: str) -> str:
     text = "".join(c for c in text if not unicodedata.combining(c))
     text = re.sub(r"\bc\s*/\s*", "con ", text)
     return re.sub(r"\bs\s*/\s*", "sin ", text)
+
+
+def known_brand_aliases(names: Iterable[str]) -> tuple[str, ...]:
+    """Recognize complete known brand names and conservative manufacturer aliases."""
+    aliases = set()
+    for name in names:
+        words = re.findall(r"[a-z]+|\d+", normalized_text(name))
+        if len(words) >= 2 and not set(words) & PROTECTED_BRAND_WORDS:
+            aliases.add(" ".join(words))
+            if len(words) == 2 and words[0] == "molinos" and len(words[1]) >= 3:
+                aliases.add(words[1])
+    return tuple(sorted(aliases, key=lambda value: (-len(value.split()), -len(value), value)))
 
 
 def _internal_typo(left: str, right: str) -> bool:
@@ -97,23 +126,10 @@ class SubstitutionSignature:
     tokens: frozenset[str]
 
 
-def signature(product: Product, brand: str | None) -> SubstitutionSignature | None:
-    text = normalized_text(product.normalized_name + " " + (product.description or ""))
-    # Remove only the explicit brand phrase, never arbitrary words inferred as a brand.
-    if brand:
-        brand_tokens = re.findall(r"[a-z]+|\d+", normalized_text(brand))
-        if brand_tokens:
-            pattern = r"(?<!\w)" + r"[\W_]*".join(map(re.escape, brand_tokens)) + r"(?!\w)"
-            brand_found = re.search(pattern, text) is not None
-            text = re.sub(pattern, " ", text)
-            if not brand_found and len(brand_tokens) == 1:
-                misspellings = {
-                    word
-                    for word in re.findall(r"[a-z]+", text)
-                    if _internal_typo(word, brand_tokens[0])
-                }
-                if len(misspellings) == 1:
-                    text = re.sub(r"\b" + re.escape(misspellings.pop()) + r"\b", " ", text)
+def signature(
+    product: Product, brand: str | None, aliases: tuple[str, ...] = ()
+) -> SubstitutionSignature | None:
+    text = _descriptor_text(product.normalized_name + " " + (product.description or ""), brand, aliases)
     packs = {int(a or b) for a, b in PACK.findall(text)}
     packs.update(int(n) for n in COUNTS.findall(text))
     if len(packs) > 1 or any(n < 1 for n in packs):
@@ -147,8 +163,61 @@ def signature(product: Product, brand: str | None) -> SubstitutionSignature | No
     return SubstitutionSignature(amount, unit, next(iter(packs), 1), tokens)
 
 
+def _descriptor_text(value: str, brand: str | None, aliases: tuple[str, ...]) -> str:
+    text = normalized_text(value)
+    # Remove only the explicit brand phrase, never arbitrary words inferred as a brand.
+    if brand:
+        brand_tokens = re.findall(r"[a-z]+|\d+", normalized_text(brand))
+        if brand_tokens:
+            pattern = r"(?<!\w)" + r"[\W_]*".join(map(re.escape, brand_tokens)) + r"(?!\w)"
+            brand_found = re.search(pattern, text) is not None
+            text = re.sub(pattern, " ", text)
+            if not brand_found and len(brand_tokens) == 1:
+                misspellings = {
+                    word
+                    for word in re.findall(r"[a-z]+", text)
+                    if _internal_typo(word, brand_tokens[0])
+                }
+                if len(misspellings) == 1:
+                    text = re.sub(r"\b" + re.escape(misspellings.pop()) + r"\b", " ", text)
+    for alias in aliases:
+        words = alias.split()
+        pattern = r"(?<!\w)" + r"[\W_]*".join(map(re.escape, words)) + r"(?!\w)"
+        text = re.sub(pattern, " ", text)
+    return text
+
+
+def product_family(product: Product, brand: str | None, aliases: tuple[str, ...] = ()) -> str | None:
+    text = _descriptor_text(product.normalized_name, brand, aliases)
+    text = PACK.sub(" ", QUANTITY.sub(" ", text))
+    words = re.findall(r"[a-z]+", text)
+    return next((word for word in words if word not in ARTICLES and word not in UNITS and len(word) >= 3), None)
+
+
+def similar_product(
+    original: Product,
+    replacement: Product,
+    original_brand: str | None = None,
+    replacement_brand: str | None = None,
+    *,
+    known_brands: tuple[str, ...] = (),
+) -> bool:
+    if original.id == replacement.id or not original.active or not replacement.active:
+        return False
+    if original.category_id and replacement.category_id and original.category_id != replacement.category_id:
+        return False
+    left = product_family(original, original_brand, known_brands)
+    right = product_family(replacement, replacement_brand, known_brands)
+    return bool(left and right and (left == right or _plural_pair(left, right) or _internal_typo(left, right)))
+
+
 def compatible(
-    original: Product, replacement: Product, original_brand=None, replacement_brand=None
+    original: Product,
+    replacement: Product,
+    original_brand=None,
+    replacement_brand=None,
+    *,
+    known_brands: tuple[str, ...] = (),
 ) -> bool:
     if original.id == replacement.id or not original.active or not replacement.active:
         return False
@@ -158,10 +227,21 @@ def compatible(
         and original.category_id != replacement.category_id
     ):
         return False
-    left, right = signature(original, original_brand), signature(replacement, replacement_brand)
+    left = signature(original, original_brand, known_brands)
+    right = signature(replacement, replacement_brand, known_brands)
+    if left is None or right is None:
+        return False
+    if (left.amount, left.unit, left.pack) != (right.amount, right.unit, right.pack):
+        return False
+    if _compatible_descriptors(left.tokens, right.tokens):
+        return True
+    original_head = re.findall(r"[a-z]+", normalized_text(original.normalized_name))[:1]
+    replacement_head = re.findall(r"[a-z]+", normalized_text(replacement.normalized_name))[:1]
     return (
-        left is not None
-        and right is not None
-        and (left.amount, left.unit, left.pack) == (right.amount, right.unit, right.pack)
-        and _compatible_descriptors(left.tokens, right.tokens)
+        original_head == replacement_head == ["arroz"]
+        and {"arroz", "largo"} <= left.tokens & right.tokens
+        and _compatible_descriptors(
+            left.tokens - RICE_LONG_REFINEMENTS,
+            right.tokens - RICE_LONG_REFINEMENTS,
+        )
     )

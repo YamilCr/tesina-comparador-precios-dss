@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   ArrowLeft,
   ArrowRight,
@@ -41,6 +41,17 @@ import type {
 } from '@/types'
 
 const store = useComparisonStore()
+type ComparisonSection = 'catalog' | 'basket' | 'criteria' | 'results' | 'feedback'
+const navigateTo = async (section: ComparisonSection) => {
+  await nextTick()
+  const target = document.getElementById(`comparison-${section}`)
+  if (!target) return
+  target.focus({ preventScroll: true })
+  target.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    block: 'start',
+  })
+}
 const cities = ref<City[]>([])
 const products = ref<Product[]>([])
 const selectedProduct = ref<Product | null>(null)
@@ -139,6 +150,7 @@ const ensureWeightLimit = (changed: 'price' | 'distance') => {
 const addProduct = (product: Product) => {
   store.addProduct(product)
   ranking.value = null
+  void navigateTo('basket')
 }
 
 const useCurrentLocation = () => {
@@ -225,6 +237,7 @@ const runLiveRefresh = async () => {
     refreshing.value = false
     invalidateRanking()
     invalidateSuggestions()
+    void navigateTo('catalog')
   }
 }
 
@@ -258,6 +271,15 @@ const runRanking = async () => {
       substitutions: selections.value.map((selection) => ({ ...selection })),
     })
     if (version !== rankingVersion) return
+    const representativeByChain = new Map(
+      [...response.ranking, ...response.incomplete].map((item) =>
+        [item.sucursal.supermercado_id, item.sucursal.id]),
+    )
+    const chainByBranch = new Map(verifiedBranches.map((branch) => [branch.id, branch.supermercado_id]))
+    selections.value = selections.value.map((selection) => ({
+      ...selection,
+      branch_id: representativeByChain.get(chainByBranch.get(selection.branch_id) ?? '') ?? selection.branch_id,
+    }))
     ranking.value = response
     // Keep accepted branches editable even after they become complete.
     substitutionBranches.value = [
@@ -275,7 +297,10 @@ const runRanking = async () => {
   } catch (reason) {
     if (version === rankingVersion) error.value = reason instanceof Error ? reason.message : 'No se pudo calcular el ranking.'
   } finally {
-    if (version === rankingVersion) calculating.value = false
+    if (version === rankingVersion) {
+      calculating.value = false
+      void navigateTo(error.value ? 'feedback' : 'results')
+    }
   }
 }
 
@@ -316,7 +341,12 @@ watch([() => store.cityId, () => store.items], () => {
   invalidateSuggestions(true)
   substitutionBranches.value = []
 }, { deep: true, flush: 'sync' })
-watch([() => store.priceWeight, () => store.distanceWeight, userLocation], invalidateRanking, { deep: true, flush: 'sync' })
+watch([() => store.priceWeight, () => store.distanceWeight], invalidateRanking, { flush: 'sync' })
+watch(userLocation, () => {
+  invalidateRanking()
+  invalidateSuggestions()
+  substitutionBranches.value = []
+}, { deep: true, flush: 'sync' })
 watch([() => store.cityId, () => store.items], loadBasketPrices, { deep: true })
 onMounted(initialize)
 </script>
@@ -329,10 +359,16 @@ onMounted(initialize)
       <RouterLink to="/" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-slate-950"><ArrowLeft class="size-4" /> Volver al inicio</RouterLink>
       <div class="mt-5 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><span class="section-kicker"><BarChart3 class="size-3.5" /> Comparador DSS</span><h1 class="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">Encontrá la alternativa más conveniente para tu canasta.</h1><p class="mt-3 max-w-2xl leading-7 text-slate-500">Sumá productos, elegí una ciudad y ajustá qué criterio importa más para tu compra.</p></div><div class="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800"><span class="font-bold">{{ store.totalProducts }}</span> productos en la canasta</div></div>
 
-      <div v-if="error && !loading" class="mt-8 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert">{{ error }}</div>
+      <div v-if="error && !loading" id="comparison-feedback" tabindex="-1" class="mt-8 scroll-mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert">{{ error }}</div>
       <div v-if="loading" class="mt-8 grid place-items-center rounded-3xl border border-white bg-white/70 py-24 text-slate-500"><LoaderCircle class="size-6 animate-spin" aria-hidden="true" /><p class="mt-3 text-sm">Preparando los datos de comparación…</p></div>
 
       <template v-else>
+        <nav class="mt-6 flex flex-wrap gap-2" aria-label="Secciones del comparador">
+          <button type="button" class="nav-link border border-slate-200 bg-white" @click="navigateTo('catalog')">Productos</button>
+          <button type="button" class="nav-link border border-slate-200 bg-white" @click="navigateTo('basket')">Mi canasta ({{ store.totalProducts }})</button>
+          <button type="button" class="nav-link border border-slate-200 bg-white" @click="navigateTo('criteria')">Criterios</button>
+          <button type="button" class="nav-link border border-slate-200 bg-white" @click="navigateTo('results')">Resultados</button>
+        </nav>
         <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <section class="space-y-6">
             <article class="glass-card rounded-3xl p-5 sm:p-6">
@@ -362,7 +398,7 @@ onMounted(initialize)
               <p v-if="locationError" class="mt-3 text-sm text-amber-800" role="alert">{{ locationError }}</p>
             </article>
 
-            <article class="glass-card rounded-3xl p-5 sm:p-6"><div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 class="text-lg font-semibold">Productos de la canasta</h2><p class="mt-1 text-sm text-slate-500">Buscá en el catálogo o actualizá precios desde las fuentes.</p></div><label class="relative block sm:w-72"><span class="sr-only">Buscar producto</span><Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input v-model="productQuery" type="search" placeholder="Buscar producto" class="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-400" /></label></div>
+            <article id="comparison-catalog" tabindex="-1" aria-label="Productos de la canasta" class="glass-card scroll-mt-6 rounded-3xl p-5 sm:p-6"><div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 class="text-lg font-semibold">Productos de la canasta</h2><p class="mt-1 text-sm text-slate-500">Buscá en el catálogo o actualizá precios desde las fuentes.</p></div><label class="relative block sm:w-72"><span class="sr-only">Buscar producto</span><Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input v-model="productQuery" type="search" placeholder="Buscar producto" class="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-400" /></label></div>
               <div class="mt-4 flex flex-col gap-3 border-y border-slate-100 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex flex-wrap gap-x-4 gap-y-2"><label v-for="source in activeSources" :key="source.id" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><input v-model="selectedSourceIds" type="checkbox" :value="source.id" class="size-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500" />{{ sourceLabel(source.scraperKey) }}</label></div>
                 <button type="button" class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-sky-100 px-4 text-sm font-bold text-sky-900 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-45" :disabled="!productQuery.trim() || !selectedSourceIds.length || refreshing" @click="runLiveRefresh"><LoaderCircle v-if="refreshing" class="size-4 animate-spin" /><RefreshCw v-else class="size-4" />{{ refreshing ? 'Actualizando…' : 'Actualizar precios' }}</button>
@@ -383,19 +419,24 @@ onMounted(initialize)
               <p v-else-if="!loadingPrices" class="px-5 py-8 text-center text-sm text-slate-500">No hay precios vigentes para los productos seleccionados.</p>
             </article>
 
-            <article class="glass-card rounded-3xl p-5 sm:p-6"><div class="flex items-center justify-between gap-4"><div><h2 class="text-lg font-semibold">Criterios de decisión</h2><p class="mt-1 text-sm text-slate-500">El peso del ahorro se completa automáticamente hasta llegar al 100%.</p></div><SlidersHorizontal class="size-5 text-sky-700" /></div>
+            <article id="comparison-criteria" tabindex="-1" aria-label="Criterios de decisión" class="glass-card scroll-mt-6 rounded-3xl p-5 sm:p-6"><div class="flex items-center justify-between gap-4"><div><h2 class="text-lg font-semibold">Criterios de decisión</h2><p class="mt-1 text-sm text-slate-500">El peso del ahorro se completa automáticamente hasta llegar al 100%.</p></div><SlidersHorizontal class="size-5 text-sky-700" /></div>
               <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3"><label class="block"><span class="flex justify-between text-sm font-medium"><span>Precio</span><span class="text-sky-700">{{ store.priceWeight }}%</span></span><input v-model.number="store.priceWeight" class="range-input mt-3 w-full" type="range" min="0" max="100" step="5" @change="ensureWeightLimit('price')" /></label><label class="block"><span class="flex justify-between text-sm font-medium"><span>Distancia</span><span class="text-sky-700">{{ store.distanceWeight }}%</span></span><input v-model.number="store.distanceWeight" class="range-input mt-3 w-full" type="range" min="0" max="100" step="5" @change="ensureWeightLimit('distance')" /></label><div class="rounded-2xl bg-emerald-50 p-4"><p class="text-sm font-medium text-emerald-800">Ahorro</p><p class="mt-2 text-2xl font-semibold tracking-tight text-emerald-700">{{ store.savingWeight }}%</p><p class="mt-1 text-xs text-emerald-700/80">Peso restante</p></div></div>
+              <button type="button" class="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700" @click="navigateTo('basket')">Continuar a mi canasta <ArrowRight class="size-4" aria-hidden="true" /></button>
             </article>
           </section>
 
-          <aside class="h-fit rounded-3xl bg-slate-950 p-5 text-white shadow-float sm:p-6 lg:sticky lg:top-5"><div class="flex items-center justify-between"><h2 class="font-semibold">Tu canasta</h2><button v-if="store.items.length" type="button" class="text-xs font-semibold text-slate-300 hover:text-white" @click="store.reset">Restablecer</button></div><p class="mt-1 text-sm text-slate-400">{{ selectedCity?.nombre ?? 'Elegí una ciudad' }}</p>
+          <aside id="comparison-basket" tabindex="-1" aria-label="Tu canasta" class="scroll-mt-6 h-fit rounded-3xl bg-slate-950 p-5 text-white shadow-float sm:p-6 lg:sticky lg:top-5"><div class="flex items-center justify-between"><h2 class="font-semibold">Tu canasta</h2><button v-if="store.items.length" type="button" class="text-xs font-semibold text-slate-300 hover:text-white" @click="store.reset">Restablecer</button></div><p class="mt-1 text-sm text-slate-400">{{ selectedCity?.nombre ?? 'Elegí una ciudad' }}</p>
             <div v-if="store.items.length" class="mt-6 divide-y divide-white/10"><div v-for="item in store.items" :key="item.product.id" class="py-4 first:pt-0"><div class="flex items-start justify-between gap-3"><button type="button" class="shrink-0 rounded-lg" :aria-label="`Ver detalles de ${item.product.nombre}`" @click="selectedProduct = item.product"><ProductImage :src="item.product.image_url" :name="item.product.nombre" /></button><div class="min-w-0 flex-1 break-words"><button type="button" class="text-left text-sm font-medium text-white hover:underline" @click="selectedProduct = item.product">{{ item.product.nombre }}</button><p class="mt-1 text-xs text-slate-400">{{ item.product.marca }}</p></div><button type="button" class="text-slate-400 transition hover:text-rose-300" :aria-label="`Quitar ${item.product.nombre}`" @click="store.removeProduct(item.product.id)"><Trash2 class="size-4" /></button></div><div class="mt-3 flex items-center justify-between"><label class="sr-only" :for="`quantity-${item.product.id}`">Cantidad de {{ item.product.nombre }}</label><input :id="`quantity-${item.product.id}`" :value="item.quantity" min="0.1" step="0.1" type="number" class="w-20 rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 text-sm text-white" @input="store.updateQuantity(item.product.id, Number(($event.target as HTMLInputElement).value))" /><span class="text-xs text-slate-400">unidades</span></div></div></div>
             <div v-else class="mt-7 rounded-2xl border border-dashed border-white/20 p-5 text-center"><ShoppingBasket class="mx-auto size-5 text-sky-300" /><p class="mt-3 text-sm text-slate-300">Tu canasta está vacía.</p><p class="mt-1 text-xs leading-5 text-slate-500">Agregá productos desde el catálogo para calcular una recomendación.</p></div>
             <button type="button" class="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 py-3 font-bold text-slate-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-45" :disabled="!store.items.length || !store.cityId || calculating || refreshing || !store.hasValidWeights" @click="runRanking"><LoaderCircle v-if="calculating" class="size-4 animate-spin" /><Trophy v-else class="size-4" />{{ calculating ? 'Calculando…' : 'Calcular ranking' }}</button>
+            <div class="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
+              <button type="button" class="min-h-11 text-sm font-semibold text-sky-200 hover:text-white" @click="navigateTo('catalog')">Seguir agregando</button>
+              <button type="button" class="min-h-11 text-sm font-semibold text-sky-200 hover:text-white" @click="navigateTo('criteria')">Ajustar criterios</button>
+            </div>
           </aside>
         </div>
 
-        <section class="mt-8" aria-live="polite"><div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><span class="section-kicker"><Trophy class="size-3.5" /> Resultado</span><h2 class="mt-3 text-2xl font-semibold tracking-tight">{{ ranking ? 'Ranking de alternativas' : 'Esperando una canasta' }}</h2><p class="mt-2 text-sm text-slate-500">{{ ranking ? `Calculado desde ${ranking.origen.nombre} · Relevamiento ${formatDate(ranking.fecha_relevamiento)}` : 'Cuando estés listo, calculá el ranking para ver la comparación.' }}</p></div><span v-if="ranking" class="text-sm font-medium text-slate-500">{{ ranking.ranking.length }} alternativas completas</span></div>
+        <section id="comparison-results" tabindex="-1" class="mt-8 scroll-mt-6" aria-label="Resultados de la comparación" aria-live="polite" :aria-busy="calculating"><div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><span class="section-kicker"><Trophy class="size-3.5" /> Resultado</span><h2 class="mt-3 text-2xl font-semibold tracking-tight">{{ ranking ? 'Ranking de alternativas' : 'Esperando una canasta' }}</h2><p class="mt-2 text-sm text-slate-500">{{ ranking ? `Calculado desde ${ranking.origen.nombre} · Relevamiento ${formatDate(ranking.fecha_relevamiento)}` : 'Cuando estés listo, calculá el ranking para ver la comparación.' }}</p></div><span v-if="ranking" class="text-sm font-medium text-slate-500">{{ ranking.ranking.length }} alternativas completas</span></div>
           <div v-if="ranking" class="mt-4 flex flex-wrap gap-2 text-xs font-semibold"><span class="rounded-full bg-emerald-50 px-3 py-1.5 text-emerald-700">{{ ranking.calidad.precios_aptos }} precios aptos</span><span v-if="ranking.calidad.precios_vencidos" class="rounded-full bg-amber-50 px-3 py-1.5 text-amber-800">{{ ranking.calidad.precios_vencidos }} vencidos</span><span v-if="ranking.calidad.precios_sospechosos" class="rounded-full bg-rose-50 px-3 py-1.5 text-rose-700">{{ ranking.calidad.precios_sospechosos }} anómalos</span></div>
           <div v-if="ranking" class="mt-6">
             <RankingMap :origin="ranking.origen" :ranking="ranking.ranking" :incomplete="ranking.incomplete" />
@@ -407,10 +448,24 @@ onMounted(initialize)
               <span class="inline-flex items-center gap-1.5 text-emerald-700"><BadgeCheck class="size-3.5" />Coordenadas verificadas</span>
             </div>
           </div>
-          <div v-if="ranking" class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2"><article v-for="result in ranking.ranking" :key="result.sucursal.id" class="rounded-3xl border p-5 shadow-sm" :class="result.posicion === 1 ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-100 bg-white'"><div class="flex items-start justify-between gap-4"><div class="flex gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-xl font-bold" :class="result.posicion === 1 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'">{{ result.posicion }}</span><div><p class="font-semibold">{{ result.sucursal.supermercado }}</p><p class="mt-1 text-sm text-slate-500">{{ result.sucursal.nombre }} · {{ result.sucursal.ciudad }}</p></div></div><span v-if="result.posicion === 1" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700"><BadgeCheck class="size-3" /> Recomendada</span></div><p class="mt-3 text-sm font-semibold">{{ result.basket_type === 'substituted' ? 'Con sustituciones' : 'Lista original' }}</p><ul v-if="result.substitutions?.length" class="mt-2 space-y-1 text-sm text-slate-600"><li v-for="change in result.substitutions" :key="change.original_product_id">{{ change.original_name }} → {{ change.product.normalized_name }} · {{ change.quantity }} unidades</li></ul><button v-if="result.substitutions?.length" type="button" class="mt-2 inline-flex min-h-10 items-center gap-2 text-sm text-rose-700" @click="restoreBranch(result.sucursal.id); runRanking()"><RotateCcw class="size-4" />Restaurar lista original</button><div class="mt-5 grid grid-cols-3 gap-2 text-center"><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Total</p><p class="mt-1 text-sm font-bold">{{ formatCurrency(result.total) }}</p></div><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Distancia</p><p class="mt-1 text-sm font-bold">{{ formatNumber(result.distancia_km) }} km</p></div><div class="rounded-xl bg-white/75 p-3"><p class="text-xs text-slate-400">Ahorro</p><p class="mt-1 text-sm font-bold text-emerald-700">{{ formatCurrency(result.ahorro) }}</p></div></div><div class="mt-4"><div class="flex justify-between text-xs font-medium text-slate-500"><span>Puntaje DSS</span><span>{{ Math.round(Number(result.puntaje) * 100) }}%</span></div><div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-sky-500 transition-all" :style="{ width: `${Math.max(Number(result.puntaje) * 100, 4)}%` }" /></div></div></article></div>
-          <div v-else class="mt-6 rounded-3xl border border-dashed border-slate-200 bg-white/50 p-10 text-center"><Trophy class="mx-auto size-6 text-sky-700" /><p class="mt-3 font-semibold text-slate-700">Todavía no hay resultados.</p><p class="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">Agregá al menos un producto y usá el botón “Calcular ranking”.</p></div>
-          <p v-if="ranking && !ranking.ranking.length" class="mt-4 text-sm text-amber-900">No hay canastas completas con precios aptos. Podés consultar alternativas para los productos faltantes.</p>
-          <p v-if="ranking?.ranking.length" class="mt-4 text-xs text-slate-600">Ahorro respecto de la canasta completa más costosa de esta evaluación. La comparación puede incluir sustituciones aceptadas.</p>
+          <div v-if="ranking" class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <article v-for="result in ranking.ranking" :key="result.sucursal.id" class="rounded-lg border p-5 shadow-sm" :class="result.posicion === 1 ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-100 bg-white'">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex gap-3"><span class="grid size-9 shrink-0 place-items-center rounded-lg font-bold" :class="result.posicion === 1 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'">{{ result.posicion }}</span><div><p class="font-semibold">{{ result.sucursal.supermercado }}</p><p class="mt-1 text-sm text-slate-500">Sucursal más cercana: {{ result.sucursal.nombre }} · {{ result.sucursal.ciudad }}</p></div></div>
+                <span v-if="result.posicion === 1" class="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><BadgeCheck class="size-3" /> Recomendada</span>
+              </div>
+              <p class="mt-3 text-sm font-semibold">{{ result.basket_type === 'substituted' ? 'Con sustituciones' : 'Lista original' }}</p>
+              <p v-if="result.has_outdated_prices" class="mt-2 text-sm font-semibold text-amber-800">Precio no actualizado · total y ahorro estimados</p>
+              <ul v-if="result.substitutions?.length" class="mt-2 space-y-1 text-sm text-slate-600"><li v-for="change in result.substitutions" :key="change.original_product_id">{{ change.original_name }} → {{ change.product.normalized_name }} · {{ change.quantity }} unidades<span v-if="change.price_status === 'stale'" class="font-medium text-amber-800"> · Precio no actualizado ({{ formatDate(change.observed_at) }})</span></li></ul>
+              <button v-if="result.substitutions?.length" type="button" class="mt-2 inline-flex min-h-10 items-center gap-2 text-sm text-rose-700" @click="restoreBranch(result.sucursal.id); runRanking()"><RotateCcw class="size-4" />Restaurar lista original</button>
+              <div class="mt-5 grid grid-cols-3 gap-2 text-center"><div class="rounded-lg bg-white/75 p-3"><p class="text-xs text-slate-400">{{ result.has_outdated_prices ? 'Total estimado' : 'Total' }}</p><p class="mt-1 text-sm font-bold">{{ formatCurrency(result.total) }}</p></div><div class="rounded-lg bg-white/75 p-3"><p class="text-xs text-slate-400">Distancia</p><p class="mt-1 text-sm font-bold">{{ formatNumber(result.distancia_km) }} km</p></div><div class="rounded-lg bg-white/75 p-3"><p class="text-xs text-slate-400">{{ ranking.ranking.some((item) => item.has_outdated_prices) ? 'Ahorro estimado' : 'Ahorro' }}</p><p class="mt-1 text-sm font-bold text-emerald-700">{{ formatCurrency(result.ahorro) }}</p></div></div>
+              <div class="mt-4"><div class="flex justify-between text-xs font-medium text-slate-500"><span>Puntaje DSS</span><span>{{ Math.round(Number(result.puntaje) * 100) }}%</span></div><div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-sky-500 transition-all" :style="{ width: `${Math.max(Number(result.puntaje) * 100, 4)}%` }" /></div></div>
+            </article>
+          </div>
+          <div v-else-if="!calculating" class="mt-6 rounded-3xl border border-dashed border-slate-200 bg-white/50 p-10 text-center"><Trophy class="mx-auto size-6 text-sky-700" /><p class="mt-3 font-semibold text-slate-700">Todavía no hay resultados.</p><p class="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">Agregá al menos un producto y usá el botón “Calcular ranking”.</p></div>
+          <p v-if="ranking && !ranking.ranking.length" class="mt-4 text-sm text-amber-900">No hay canastas completas con importes calculables. Podés consultar alternativas para los productos faltantes.</p>
+          <p v-if="ranking?.ranking.some((result) => result.has_outdated_prices)" class="mt-4 text-xs font-medium text-amber-800">Los importes estimados usan el último precio publicado de los sustitutos indicados; podrían no reflejar el precio actual.</p>
+          <p v-if="ranking?.ranking.length" class="mt-4 text-xs text-slate-600">Precios publicados en la cadena; disponibilidad inferida y stock físico no confirmado. Ahorro respecto de la canasta completa más costosa de esta evaluación. Los sustitutos pueden tener otra variante o presentación: el cálculo conserva la cantidad de envases elegida, no iguala el contenido neto.</p>
           <BranchSubstitutions :branches="substitutionBranches" :selections="selections" :suggestions="suggestions" :errors="substitutionErrors" :pending="substitutionPending" :busy="calculating || refreshing" @search="findSubstitutes" @select="chooseSubstitute" @restore="restoreBranch" @apply="runRanking" />
         </section>
       </template>

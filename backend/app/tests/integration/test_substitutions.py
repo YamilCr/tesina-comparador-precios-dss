@@ -24,6 +24,104 @@ class BrokenIndex:
 
 
 @pytest.mark.asyncio
+async def test_rice_product_type_is_suggested_and_revalidated(
+    asgi_request, sqlite_session_factory, seed_data, scenario
+):
+    original_id, replacement_id, source_id, price_id = [uuid4() for _ in range(4)]
+    ala_brand_id, dos_hermanos_brand_id = uuid4(), uuid4()
+    async with sqlite_session_factory() as session:
+        session.add_all(
+            [
+                BrandModel(id=ala_brand_id, nombre="Molinos Ala", activo=True),
+                BrandModel(id=dos_hermanos_brand_id, nombre="Dos Hermanos", activo=True),
+            ]
+        )
+        await session.flush()
+        session.add_all(
+            [
+                ProductModel(
+                    id=original_id,
+                    nombre_normalizado="ARROZ ALA LARGO 1 KG",
+                    unidad_medida="KG",
+                    contenido_neto=Decimal("1"),
+                    activo=True,
+                ),
+                ProductModel(
+                    id=replacement_id,
+                    marca_id=dos_hermanos_brand_id,
+                    nombre_normalizado="Arroz Dos Hermanos Largo Fino 00000 1000grs",
+                    unidad_medida="KG",
+                    contenido_neto=Decimal("1"),
+                    activo=True,
+                ),
+            ]
+        )
+        await session.flush()
+        session.add(
+            ProductSourceModel(
+                id=source_id,
+                producto_id=replacement_id,
+                supermercado_id=seed_data.la_anonima_id,
+                nombre_original="Arroz largo fino 00000",
+                activo=True,
+                confianza_match=Decimal("1"),
+            )
+        )
+        await session.flush()
+        session.add(
+            PriceModel(
+                id=price_id,
+                producto_fuente_id=source_id,
+                sucursal_id=seed_data.la_branch_id,
+                precio=Decimal("1690"),
+                moneda="ARS",
+                disponible=True,
+                promocion=False,
+                fecha_relevamiento=seed_data.observed_at,
+            )
+        )
+        await session.commit()
+
+    items = [{"product_id": str(original_id), "quantity": "2"}]
+    offered = await asgi_request(
+        "POST",
+        "/api/v1/decisions/substitutions",
+        json_body={
+            "branch_id": str(seed_data.la_branch_id),
+            "items": items,
+            "as_of": seed_data.observed_at.isoformat(),
+        },
+    )
+    assert offered.status_code == 200, offered.json()
+    assert offered.json()["items"][0]["candidates"][0]["product"]["id"] == str(replacement_id)
+
+    request = {
+        "city_id": str(seed_data.city_id),
+        "branch_ids": [str(seed_data.la_branch_id)],
+        "as_of": seed_data.observed_at.isoformat(),
+        "items": items,
+        "substitutions": [
+            {
+                "branch_id": str(seed_data.la_branch_id),
+                "original_product_id": str(original_id),
+                "replacement_product_id": str(replacement_id),
+            }
+        ],
+    }
+    accepted = await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)
+    assert accepted.status_code == 200, accepted.json()
+    assert Decimal(accepted.json()["ranking"][0]["total_cost"]) == 3380
+
+    async with sqlite_session_factory() as session:
+        replacement = await session.get(ProductModel, replacement_id)
+        replacement.nombre_normalizado = "Fideos Dos Hermanos Integral 1000grs"
+        await session.commit()
+    rejected = await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == "invalid_substitution"
+
+
+@pytest.mark.asyncio
 async def test_wording_normalization_is_revalidated_by_ranking(
     asgi_request,
     sqlite_session_factory,
@@ -44,7 +142,7 @@ async def test_wording_normalization_is_revalidated_by_ranking(
     assert any(item["basket_type"] == "substituted" for item in accepted.json()["ranking"])
     async with sqlite_session_factory() as session:
         replacement = await session.get(ProductModel, scenario["replacement"])
-        replacement.nombre_normalizado = "Leches descremadas SanCor 1000 ml"
+        replacement.nombre_normalizado = "Yogures descremados SanCor 1000 ml"
         await session.commit()
     rejected = await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)
     assert rejected.status_code == 422
@@ -111,6 +209,7 @@ async def test_suggestions_limit_and_cost_name_order(
     response = await suggestions(asgi_request, seed_data, scenario)
     candidates = response.json()["items"][0]["candidates"]
     assert len(candidates) == 3
+    assert response.json()["items"][0]["unpriced_candidates"] == []
     assert [Decimal(c["subtotal"]) for c in candidates] == [2000, 2200, 2400]
     assert candidates[-1]["product"]["normalized_name"] == "LECHE ENTERA 1 litro"
 
@@ -136,8 +235,114 @@ async def test_anomalous_replacement_is_not_suggested(
         await session.commit()
     response = await suggestions(asgi_request, seed_data, scenario)
     assert response.json()["items"][0]["candidates"] == []
+    unpriced = response.json()["items"][0]["unpriced_candidates"]
+    assert len(unpriced) == 1
+    assert unpriced[0]["product"]["id"] == str(scenario["replacement"])
+    assert unpriced[0]["price_status"] == "suspect"
+    assert "unit_price" not in unpriced[0]
     assert response.json()["items"][0]["diagnostics"]["code"] == "no_suitable_prices"
     assert response.json()["items"][0]["diagnostics"]["suspect_products"] == 1
+    ranking = await asgi_request(
+        "POST",
+        "/api/v1/decisions/ranking",
+        json_body=ranking_request(seed_data, scenario, substitutions=[selection(seed_data, scenario)]),
+    )
+    assert ranking.status_code == 200
+    assert ranking.json()["incomplete_branches"][0]["substitutions"][0]["price_status"] == "suspect"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["missing", "stale"])
+async def test_similar_product_without_current_price_can_be_selected(
+    asgi_request, sqlite_session_factory, seed_data, scenario, status
+):
+    async with sqlite_session_factory() as session:
+        price = await session.get(PriceModel, scenario["price"])
+        if status == "missing":
+            price.disponible = False
+        else:
+            price.fecha_relevamiento = seed_data.observed_at - timedelta(days=20)
+        await session.commit()
+
+    response = await suggestions(asgi_request, seed_data, scenario)
+    assert response.status_code == 200
+    group = response.json()["items"][0]
+    if status == "missing":
+        assert group["candidates"] == []
+        assert group["diagnostics"]["code"] == "no_suitable_prices"
+        candidate = group["unpriced_candidates"][0]
+        assert candidate["price_status"] == "missing"
+        assert "unit_price" not in candidate
+    else:
+        assert group["unpriced_candidates"] == []
+        candidate = group["candidates"][0]
+        assert candidate["price_status"] == "stale"
+        assert Decimal(candidate["unit_price"]) == 1300
+    assert candidate["product"]["id"] == str(scenario["replacement"])
+
+    ranking = await asgi_request(
+        "POST",
+        "/api/v1/decisions/ranking",
+        json_body=ranking_request(
+            seed_data, scenario, substitutions=[selection(seed_data, scenario)]
+        ),
+    )
+    assert ranking.status_code == 200, ranking.json()
+    if status == "missing":
+        incomplete = ranking.json()["incomplete_branches"][0]
+        assert incomplete["substitutions"][0]["price_status"] == "missing"
+        assert incomplete["substitutions"][0]["product"]["id"] == str(scenario["replacement"])
+        assert not any(item["basket_type"] == "substituted" for item in ranking.json()["ranking"])
+    else:
+        result = next(item for item in ranking.json()["ranking"] if item["basket_type"] == "substituted")
+        assert result["has_outdated_prices"] is True
+        assert Decimal(result["total_cost"]) == 2600
+        assert result["substitutions"][0]["price_status"] == "stale"
+
+
+@pytest.mark.asyncio
+async def test_different_presentation_and_variant_are_suggested_without_quantity_conversion(
+    asgi_request, sqlite_session_factory, seed_data, scenario
+):
+    async with sqlite_session_factory() as session:
+        replacement = await session.get(ProductModel, scenario["replacement"])
+        replacement.nombre_normalizado = "Leche descremada SanCor 500 ml"
+        replacement.contenido_neto = Decimal("500")
+        await session.commit()
+
+    offered = await suggestions(asgi_request, seed_data, scenario)
+    candidate = offered.json()["items"][0]["candidates"][0]
+    assert candidate["product"]["id"] == str(scenario["replacement"])
+    assert candidate["product"]["base_quantity"] == "500"
+    assert candidate["quantity"] == "2"
+    assert Decimal(candidate["subtotal"]) == 2600
+
+    ranked = await asgi_request(
+        "POST",
+        "/api/v1/decisions/ranking",
+        json_body=ranking_request(seed_data, scenario, substitutions=[selection(seed_data, scenario)]),
+    )
+    assert ranked.status_code == 200, ranked.json()
+    result = next(item for item in ranked.json()["ranking"] if item["basket_type"] == "substituted")
+    assert Decimal(result["total_cost"]) == 2600
+
+
+@pytest.mark.asyncio
+async def test_unpriced_product_without_chain_publication_is_rejected(
+    asgi_request, sqlite_session_factory, seed_data, scenario
+):
+    foreign = uuid4()
+    async with sqlite_session_factory() as session:
+        session.add(ProductModel(id=foreign, nombre_normalizado="Leche de otra cadena 1 L", activo=True))
+        await session.commit()
+    request = ranking_request(
+        seed_data,
+        scenario,
+        substitutions=[selection(seed_data, scenario, replacement_product_id=str(foreign))],
+    )
+    response = await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_substitution"
 
 
 @pytest_asyncio.fixture
@@ -245,7 +450,7 @@ async def test_full_flow_is_scoped_and_reversible(asgi_request, seed_data, scena
     assert "vector retrieval failed" in caplog.text
     request = ranking_request(seed, scenario)
     initial = (await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)).json()
-    assert len(initial["incomplete_branches"]) == 2
+    assert len(initial["incomplete_branches"]) == 1
     assert all(
         b["covered_products_count"] == 0 and b["total_products_count"] == 1
         for b in initial["incomplete_branches"]
@@ -268,7 +473,7 @@ async def test_full_flow_is_scoped_and_reversible(asgi_request, seed_data, scena
     assert substituted["basket_type"] == "substituted"
     assert Decimal(substituted["total_cost"]) == 2600
     assert substituted["substitutions"][0]["original_product_id"] == str(seed.milk_product_id)
-    assert changed["incomplete_branches"][0]["branch"]["id"] == str(scenario["sibling"])
+    assert changed["incomplete_branches"] == []
     assert (
         next(b for b in changed["ranking"] if b["branch"]["id"] == str(seed.carrefour_branch_id))[
             "basket_type"
@@ -277,6 +482,43 @@ async def test_full_flow_is_scoped_and_reversible(asgi_request, seed_data, scena
     )
     restored = (await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)).json()
     assert restored == initial
+
+
+@pytest.mark.asyncio
+async def test_selection_follows_chain_when_nearest_branch_changes(
+    asgi_request, seed_data, scenario
+):
+    request = ranking_request(
+        seed_data,
+        scenario,
+        origin_latitude="-45.85",
+        origin_longitude="-67.49",
+        substitutions=[selection(seed_data, scenario)],
+    )
+    response = await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)
+    assert response.status_code == 200, response.json()
+    by_chain = {item["branch"]["supermarket_id"]: item for item in response.json()["ranking"]}
+    la = by_chain[str(seed_data.la_anonima_id)]
+    assert la["branch"]["id"] == str(scenario["sibling"])
+    assert la["basket_type"] == "substituted"
+    assert Decimal(la["total_cost"]) == 2600
+
+
+@pytest.mark.asyncio
+async def test_duplicate_substitutions_across_same_chain_are_rejected(
+    asgi_request, seed_data, scenario
+):
+    request = ranking_request(
+        seed_data,
+        scenario,
+        substitutions=[
+            selection(seed_data, scenario),
+            selection(seed_data, scenario, branch_id=str(scenario["sibling"])),
+        ],
+    )
+    response = await asgi_request("POST", "/api/v1/decisions/ranking", json_body=request)
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_substitution"
 
 
 @pytest.mark.asyncio
@@ -290,8 +532,6 @@ async def test_full_flow_is_scoped_and_reversible(asgi_request, seed_data, scena
         "type",
         "foreign",
         "inactive",
-        "unavailable",
-        "stale",
         "source",
     ],
 )
@@ -317,15 +557,9 @@ async def test_manipulated_or_changed_replacements_are_rejected_atomically(
         if mutation == "type":
             (
                 await session.get(ProductModel, scenario["replacement"])
-            ).nombre_normalizado = "Leche descremada 1 L"
+            ).nombre_normalizado = "Jugo de naranja 1 L"
         if mutation == "inactive":
             (await session.get(ProductModel, scenario["replacement"])).activo = False
-        if mutation == "unavailable":
-            (await session.get(PriceModel, scenario["price"])).disponible = False
-        if mutation == "stale":
-            (await session.get(PriceModel, scenario["price"])).fecha_relevamiento = (
-                seed.observed_at - timedelta(days=40)
-            )
         if mutation == "source":
             (await session.get(ProductSourceModel, scenario["source"])).activo = False
         await session.commit()
@@ -390,7 +624,7 @@ async def test_direct_price_priority_price_changes_and_combined_quantities(
     result = response.json()["ranking"][0]
     assert Decimal(result["total_cost"]) == 7500
     assert len(result["substitutions"]) == 2
-    assert len(response.json()["incomplete_branches"]) == 2
+    assert len(response.json()["incomplete_branches"]) == 1
 
 
 @pytest.mark.asyncio
@@ -420,11 +654,14 @@ async def test_suggestions_filter_ineligible_products(
         await session.commit()
     response = await suggestions(asgi_request, seed_data, scenario)
     assert response.status_code == 200, response.json()
+    if mutation == "stale":
+        assert response.json()["items"][0]["candidates"][0]["price_status"] == "stale"
+        return
     assert response.json()["items"][0]["candidates"] == []
     diagnostic = response.json()["items"][0]["diagnostics"]
-    if mutation in {"stale", "unavailable"}:
+    if mutation == "unavailable":
         assert diagnostic["code"] == "no_suitable_prices"
         assert diagnostic["compatible_products"] == 1
-        assert diagnostic["stale_products"] == (1 if mutation == "stale" else 0)
+        assert response.json()["items"][0]["unpriced_candidates"][0]["price_status"] == "missing"
     else:
         assert diagnostic["code"] in {"no_chain_products", "no_compatible_products"}

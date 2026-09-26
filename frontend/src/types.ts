@@ -40,6 +40,7 @@ export interface Supermarket {
 
 export interface Branch {
   id: string
+  supermercado_id: string
   nombre: string
   direccion: string
   supermercado: string
@@ -100,6 +101,7 @@ export interface RankingOrigin {
 
 export interface RankedBranch {
   basket_type?: 'original' | 'substituted'
+  has_outdated_prices?: boolean
   substitutions?: SubstitutionCandidate[]
   posicion: number
   sucursal: Branch
@@ -114,7 +116,7 @@ export interface IncompleteBranch {
   distance_km?: string
   covered_products_count?: number
   total_products_count?: number
-  substitutions?: SubstitutionCandidate[]
+  substitutions?: Array<SubstitutionCandidate | UnpricedSubstitutionCandidate>
   sucursal: Branch
   productos_faltantes: Array<{
     id: string
@@ -221,6 +223,16 @@ export interface SubstitutionCandidate {
   price_branch_id: string
   inferred_from_chain: boolean
   compatibility_reason: string
+  price_status?: 'fresh' | 'stale'
+}
+
+export interface UnpricedSubstitutionCandidate {
+  product: SubstitutionCandidate['product']
+  price_status: 'missing' | 'stale' | 'suspect'
+  compatibility_reason: string
+  original_product_id?: string
+  original_name?: string
+  quantity?: string
 }
 
 export interface SuggestionsRequest {
@@ -237,6 +249,7 @@ export interface SuggestionsResponse {
     quantity: string
     reason: 'missing' | 'stale' | 'suspect'
     candidates: SubstitutionCandidate[]
+    unpriced_candidates: UnpricedSubstitutionCandidate[]
     diagnostics?: SubstitutionDiagnostics
   }>
 }

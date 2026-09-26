@@ -10,6 +10,7 @@ from app.modules.decision.application.branch_prices import load_branch_prices
 from app.modules.decision.application.substitutions import (
     InvalidSubstitution,
     candidate_payload,
+    unpriced_candidate_payload,
     validate_substitutions,
 )
 from app.modules.decision.application.dto.ranking_dto import (
@@ -77,13 +78,39 @@ class GenerateRankingUseCase:
                 and branch.coordinates_verified
             ]
             branch_by_id = {branch.id: branch for branch in branches}
-            replacements = await validate_substitutions(
+            nearest_by_chain: dict[UUID, Branch] = {}
+            for branch in branches:
+                current = nearest_by_chain.get(branch.supermarket_id)
+                distance = self._distance_service.calculate(
+                    origin, GeoPoint(latitude=branch.latitude, longitude=branch.longitude)
+                ).kilometers
+                if current is None or (distance, str(branch.id)) < (
+                    self._distance_service.calculate(
+                        origin, GeoPoint(latitude=current.latitude, longitude=current.longitude)
+                    ).kilometers,
+                    str(current.id),
+                ):
+                    nearest_by_chain[branch.supermarket_id] = branch
+            representative_by_id = {branch.id: branch for branch in nearest_by_chain.values()}
+            validated_replacements = await validate_substitutions(
                 uow,
                 request.substitutions,
                 product_ids,
                 branch_by_id,
             )
-            if not branch_by_id:
+            replacements = {}
+            for (branch_id, original_id), replacement in validated_replacements.items():
+                target_id = nearest_by_chain[branch_by_id[branch_id].supermarket_id].id
+                key = (target_id, original_id)
+                if key in replacements:
+                    raise InvalidSubstitution(
+                        branch_id,
+                        original_id,
+                        "Ya hay un reemplazo para este producto en la cadena.",
+                    )
+                replacements[key] = replacement
+            branches = list(nearest_by_chain.values())
+            if not branches:
                 return RankingResponseDTO(
                     ranking=[],
                     incomplete_branches=[],
@@ -102,7 +129,7 @@ class GenerateRankingUseCase:
             pricing = await load_branch_prices(
                 uow,
                 list(effective_ids),
-                branch_by_id,
+                representative_by_id,
                 evaluated_at,
                 request.max_price_age_days,
             )
@@ -112,17 +139,27 @@ class GenerateRankingUseCase:
                 pricing.reasons,
             )
             details_by_branch: dict[UUID, list[dict]] = {}
+            outdated_branches: set[UUID] = set()
             for (branch_id, original_id), (replacement, brands) in replacements.items():
                 price = latest_prices.get(branch_id, {}).get(replacement.id)
+                status = "fresh"
                 if price is None:
-                    raise InvalidSubstitution(
-                        branch_id,
-                        original_id,
-                        "El reemplazo ya no tiene un precio apto en esta cadena.",
+                    price = pricing.stale_selected.get(branch_id, {}).get(replacement.id)
+                    status = "stale" if price else "missing"
+                if price is None:
+                    detail = unpriced_candidate_payload(replacement, branch_id, pricing, brands)
+                    detail.update(
+                        original_product_id=str(original_id),
+                        quantity=str(quantities[original_id]),
                     )
-                detail = candidate_payload(
-                    original_id, replacement, price, quantities[original_id], branch_id, brands
-                )
+                else:
+                    if status == "stale":
+                        latest_prices.setdefault(branch_id, {})[replacement.id] = price
+                        outdated_branches.add(branch_id)
+                    detail = candidate_payload(
+                        original_id, replacement, price, quantities[original_id], branch_id, brands,
+                        price_status=status,
+                    )
                 detail["original_name"] = product_names[original_id]
                 details_by_branch.setdefault(branch_id, []).append(detail)
 
@@ -155,7 +192,7 @@ class GenerateRankingUseCase:
                                 id=product_id,
                                 normalized_name=product_names[product_id],
                                 reason=exclusion_reasons.get(
-                                    (branch.id, product_id),
+                                    (branch.id, effective_product(branch.id, product_id)),
                                     "missing",
                                 ),
                             )
@@ -227,6 +264,7 @@ class GenerateRankingUseCase:
                     basket_type="substituted"
                     if result.branch_id in details_by_branch
                     else "original",
+                    has_outdated_prices=result.branch_id in outdated_branches,
                     substitutions=details_by_branch.get(result.branch_id, []),
                 )
                 for result in ranking

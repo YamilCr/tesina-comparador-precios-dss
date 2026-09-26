@@ -271,12 +271,29 @@ async def test_generate_ranking_infers_prices_across_same_supermarket_branches()
         )
     ).execute(_ranking_command())
 
-    assert {result.branch.id for result in response.ranking} == {BRANCH_1_ID, BRANCH_2_ID}
+    assert [result.branch.id for result in response.ranking] == [BRANCH_1_ID]
     assert response.incomplete_branches == []
-    assert {
-        result.branch.id: result.total_cost
-        for result in response.ranking
-    }[BRANCH_2_ID] == Decimal("4050")
+    assert response.ranking[0].total_cost == Decimal("4050")
+
+
+@pytest.mark.asyncio
+async def test_generate_ranking_uses_nearest_branch_for_chain_distance() -> None:
+    command = replace(
+        _ranking_command(),
+        origin_latitude=Decimal("-45.8750"),
+        origin_longitude=Decimal("-67.5100"),
+    )
+    response = await GenerateRankingUseCase(
+        FakeUnitOfWork(
+            omit_second_branch_second_product=True,
+            second_branch_supermarket_id=SUPERMARKET_1_ID,
+        )
+    ).execute(command)
+
+    assert len(response.ranking) == 1
+    assert response.ranking[0].branch.id == BRANCH_2_ID
+    assert response.ranking[0].distance_km == Decimal("0")
+    assert response.ranking[0].total_cost == Decimal("4050")
 
 
 @pytest.mark.asyncio

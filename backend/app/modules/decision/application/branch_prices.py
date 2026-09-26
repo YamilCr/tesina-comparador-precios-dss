@@ -50,6 +50,7 @@ def select_branch_prices(
 @dataclass
 class BranchPrices:
     selected: dict[UUID, dict[UUID, Price]]
+    stale_selected: dict[UUID, dict[UUID, Price]]
     quality: PriceQualitySelection
     reasons: dict[tuple[UUID, UUID], str]
 
@@ -77,6 +78,16 @@ async def load_branch_prices(
     ]
     quality = PriceQualityPolicy(max_age_days=max_age_days).evaluate(prices, as_of=evaluated_at)
     selected = select_branch_prices(quality.eligible, branches, sources, product_by_source)
+    non_anomalous_ids = {
+        price.id
+        for price in PriceQualityPolicy(max_age_days=None).evaluate(prices, as_of=evaluated_at).eligible
+    }
+    stale_selected = select_branch_prices(
+        [price for price in quality.stale if price.id in non_anomalous_ids and price.amount > 0],
+        branches,
+        sources,
+        product_by_source,
+    )
     reasons = {}
     for status, excluded in (("stale", quality.stale), ("suspect", quality.suspect)):
         for price in excluded:
@@ -84,4 +95,4 @@ async def load_branch_prices(
             for branch in branches.values():
                 if source.supermarket_id == branch.supermarket_id:
                     reasons[(branch.id, source.product_id)] = status
-    return BranchPrices(selected, quality, reasons)
+    return BranchPrices(selected, stale_selected, quality, reasons)

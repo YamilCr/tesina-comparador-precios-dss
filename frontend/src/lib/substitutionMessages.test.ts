@@ -10,14 +10,14 @@ const diagnostics: SubstitutionDiagnostics = {
 describe('live substitution explanations', () => {
   it('distinguishes compatible products with unusable prices from incompatible products', () => {
     const message = substitutionEmptyMessage(diagnostics)
-    expect(message).toContain('Hay 2 productos compatibles')
+    expect(message).toContain('Hay 2 productos similares')
     expect(message).toContain('1 con precios de más de 14 días')
     expect(message).toContain('1 sin precio disponible')
-    expect(substitutionEmptyMessage({ ...diagnostics, code: 'no_compatible_products' })).toContain('Ningún producto cargado')
+    expect(substitutionEmptyMessage({ ...diagnostics, code: 'no_compatible_products' })).toContain('misma familia')
   })
   it('explains missing attributes and chain data without inventing stock', () => {
     expect(substitutionEmptyMessage({ ...diagnostics, code: 'insufficient_attributes' })).toContain('verificar su presentación')
     expect(substitutionEmptyMessage({ ...diagnostics, code: 'no_chain_products' })).toContain('publicaciones activas')
-    expect(substitutionEmptyMessage()).toBe('No hay alternativas compatibles con precio apto.')
+    expect(substitutionEmptyMessage()).toBe('No hay productos similares disponibles en esta cadena.')
   })
 })

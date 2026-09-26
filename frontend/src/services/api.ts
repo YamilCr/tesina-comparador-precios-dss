@@ -15,6 +15,7 @@ import type {
   Supermarket,
   Branch,
   SubstitutionCandidate,
+  UnpricedSubstitutionCandidate,
   SuggestionsResponse,
 } from '@/types'
 
@@ -151,6 +152,7 @@ interface BackendRankingResponse {
   }
   ranking: Array<{
     basket_type?: 'original' | 'substituted'
+    has_outdated_prices?: boolean
     substitutions?: SubstitutionCandidate[]
     position: number
     branch: BackendRankingBranch
@@ -164,7 +166,7 @@ interface BackendRankingResponse {
     distance_km?: string
     covered_products_count?: number
     total_products_count?: number
-    substitutions?: SubstitutionCandidate[]
+    substitutions?: Array<SubstitutionCandidate | UnpricedSubstitutionCandidate>
     branch: BackendRankingBranch
     missing_products: Array<{
       id: string
@@ -249,6 +251,7 @@ const mapBranch = (
   const city = cities.find((item) => item.id === branch.city_id)
   return {
     id: branch.id,
+    supermercado_id: branch.supermarket_id,
     nombre: branch.name,
     direccion: branch.address,
     supermercado: branch.supermarket_name ?? supermarket?.nombre ?? branch.supermarket_id,
@@ -264,6 +267,7 @@ const mapRankingBranch = (branch: BackendRankingBranch, cities: City[] = []): Br
   const city = cities.find((item) => item.id === branch.city_id)
   return {
     id: branch.id,
+    supermercado_id: branch.supermarket_id,
     nombre: branch.name,
     direccion: branch.address,
     supermercado: branch.supermarket_name,
@@ -300,16 +304,26 @@ const fetchSupermarkets = async () => {
 const fetchBranches = async (cityId?: string, supermarketId?: string) => {
   const [branchPayload, cityPayload, supermarketPayload] = await Promise.all([
     request<BackendPaginated<BackendBranch>>(
-      `/api/v1/branches${queryString({ city_id: cityId, supermarket_id: supermarketId })}`,
+      `/api/v1/branches${queryString({ city_id: cityId, supermarket_id: supermarketId, page_size: '100' })}`,
     ),
     fetchCities(),
     fetchSupermarkets(),
   ])
+  const allBranches = [...branchPayload.items]
+  const total = branchPayload.pagination?.total ?? branchPayload.count ?? allBranches.length
+  for (let page = 2; allBranches.length < total; page++) {
+    const next = await request<BackendPaginated<BackendBranch>>(
+      `/api/v1/branches${queryString({ city_id: cityId, supermarket_id: supermarketId, page_size: '100', page: String(page) })}`,
+    )
+    if (!next.items.length) break
+    allBranches.push(...next.items)
+  }
   return toPagination({
     ...branchPayload,
-    items: branchPayload.items.map((branch) =>
+    items: allBranches.map((branch) =>
       mapBranch(branch, supermarketPayload.items, cityPayload.items),
     ),
+    pagination: { page: 1, page_size: allBranches.length, total },
   })
 }
 
@@ -424,6 +438,7 @@ const fetchRanking = async (rankingRequest: RankingRequest): Promise<RankingResp
     },
     ranking: payload.ranking.map((item) => ({
       basket_type: item.basket_type ?? 'original',
+      has_outdated_prices: item.has_outdated_prices ?? false,
       substitutions: item.substitutions ?? [],
       posicion: item.position,
       sucursal: mapRankingBranch(item.branch, cityPayload.items),

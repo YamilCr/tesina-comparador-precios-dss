@@ -55,7 +55,7 @@ const renderMarkers = async () => {
       .bindTooltip(
         tooltip(
           `${result.posicion}. ${result.sucursal.supermercado}`,
-          `${result.sucursal.nombre} · ${result.distancia_km} km`,
+          `Sucursal más cercana: ${result.sucursal.nombre} · ${result.distancia_km} km`,
         ),
         { direction: 'top' },
       )
@@ -73,7 +73,7 @@ const renderMarkers = async () => {
       weight: 2,
     })
       .bindTooltip(
-        tooltip(result.sucursal.supermercado, `${result.sucursal.nombre} · canasta incompleta`),
+        tooltip(result.sucursal.supermercado, `Sucursal más cercana: ${result.sucursal.nombre} · canasta incompleta`),
         { direction: 'top' },
       )
       .addTo(markers!)
@@ -114,6 +114,6 @@ onBeforeUnmount(() => {
     ref="mapElement"
     class="h-80 w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm sm:h-96"
     role="img"
-    aria-label="Mapa del origen y las sucursales comparadas"
+    aria-label="Mapa del origen y los supermercados comparados"
   />
 </template>

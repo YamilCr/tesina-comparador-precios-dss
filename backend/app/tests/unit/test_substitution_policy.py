@@ -5,7 +5,11 @@ from uuid import uuid4
 import pytest
 
 from app.modules.catalog.domain.entities import Product
-from app.modules.decision.domain.services.substitution_policy import compatible
+from app.modules.decision.domain.services.substitution_policy import (
+    compatible,
+    known_brand_aliases,
+    similar_product,
+)
 
 
 def product(name, **kwargs):
@@ -82,6 +86,35 @@ def test_explicit_brand_spelling_without_guessing_missing_brands():
     assert not compatible(original, replacement, None, "Dos Hermanos")
 
 
+def test_product_and_type_matching_recovers_missing_brand_metadata():
+    original = product("ARROZ ALA LARGO 1 KG", unit_measure="KG", net_content=Decimal("1"))
+    replacement = product("Arroz Dos Hermanos Largo Fino 00000 1000grs")
+    aliases = known_brand_aliases(["Molinos Ala", "Dos Hermanos"])
+
+    assert compatible(original, replacement, None, "Dos Hermanos", known_brands=aliases)
+    assert compatible(replacement, original, "Dos Hermanos", None, known_brands=aliases)
+    assert not compatible(original, replacement, None, "Dos Hermanos")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Arroz Dos Hermanos Integral 1 Kg",
+        "Arroz Dos Hermanos Parboil 1 Kg",
+        "Arroz Dos Hermanos Largo Fino 00000 500 g",
+        "Arroz Dos Hermanos Largo Fino 00000 1 Kg pack x2",
+        "Arroz Dos Hermanos Largo Fino 00000 Sin Gluten 1 Kg",
+        "Alfajor de Arroz Largo Dos Hermanos 1 Kg",
+    ],
+)
+def test_generalized_rice_type_keeps_variant_and_presentation_boundaries(name):
+    original = product("ARROZ ALA LARGO 1 KG")
+    replacement = product(name)
+    aliases = known_brand_aliases(["Molinos Ala", "Dos Hermanos"])
+
+    assert not compatible(original, replacement, None, "Dos Hermanos", known_brands=aliases)
+
+
 @pytest.mark.parametrize(
     "left,right",
     [
@@ -100,3 +133,25 @@ def test_explicit_brand_spelling_without_guessing_missing_brands():
 )
 def test_wording_tolerance_does_not_erase_meaning(left, right):
     assert not compatible(product(left), product(right))
+
+
+@pytest.mark.parametrize(
+    "original,replacement",
+    [
+        ("Arroz Ala Largo 1 kg", "Arroz Dos Hermanos Integral 500 g"),
+        ("Leche entera 1 L", "Leche descremada 500 ml pack x2"),
+        ("Galletitas dulces 120 g", "Galletita salada 350 g"),
+    ],
+)
+def test_similar_products_allow_presentation_and_variant_changes(original, replacement):
+    assert similar_product(product(original), product(replacement), "Ala", "Dos Hermanos")
+
+
+def test_similar_products_still_require_a_real_family_and_chain_safe_category():
+    category = uuid4()
+    assert not similar_product(product("Arroz largo 1 kg"), product("Fideos largos 1 kg"))
+    assert not similar_product(product("Arroz largo 1 kg"), product("Alfajor de arroz 1 kg"))
+    assert not similar_product(
+        product("Leche entera 1 L", category_id=category),
+        product("Leche descremada 500 ml", category_id=uuid4()),
+    )

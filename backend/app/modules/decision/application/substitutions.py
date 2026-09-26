@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.modules.decision.application.branch_prices import load_branch_prices
-from app.modules.decision.domain.services.substitution_policy import compatible, signature
+from app.modules.decision.domain.services.substitution_policy import (
+    known_brand_aliases,
+    similar_product,
+    signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +25,8 @@ class InvalidSubstitution(ValueError):
         }
 
 
-async def brand_names(uow, products):
-    result = {}
-    for brand_id in {p.brand_id for p in products if p.brand_id is not None}:
-        brand = await uow.brands.get_by_id(brand_id)
-        if brand:
-            result[brand_id] = brand.name
-    return result
+async def brand_names(uow):
+    return {brand.id: brand.name for brand in await uow.brands.list_active()}
 
 
 def product_payload(product, brands):
@@ -45,7 +44,7 @@ def product_payload(product, brands):
     }
 
 
-def candidate_payload(original_id, replacement, price, quantity, branch_id, brands):
+def candidate_payload(original_id, replacement, price, quantity, branch_id, brands, *, price_status="fresh"):
     return {
         "original_product_id": str(original_id),
         "product": product_payload(replacement, brands),
@@ -56,12 +55,23 @@ def candidate_payload(original_id, replacement, price, quantity, branch_id, bran
         "observed_at": price.observed_at.isoformat(),
         "price_branch_id": str(price.branch_id),
         "inferred_from_chain": price.branch_id != branch_id,
-        "compatibility_reason": "Igual cantidad, unidad y pack; descripciones compatibles tras normalizar escritura. Puede cambiar la marca.",
+        "price_status": price_status,
+        "compatibility_reason": "Producto de la misma familia; revisá tipo, variante y presentación antes de elegirlo.",
+    }
+
+
+def unpriced_candidate_payload(replacement, branch_id, pricing, brands):
+    return {
+        "product": product_payload(replacement, brands),
+        "price_status": pricing.reasons.get((branch_id, replacement.id), "missing"),
+        "compatibility_reason": "Producto de la misma familia; revisá tipo, variante y presentación antes de elegirlo.",
     }
 
 
 async def validate_substitutions(uow, substitutions, product_ids, branches):
     replacements, seen = {}, set()
+    brands = await brand_names(uow) if substitutions else {}
+    aliases = known_brand_aliases(brands.values())
     for item in substitutions:
         key = (item.branch_id, item.original_product_id)
 
@@ -81,11 +91,18 @@ async def validate_substitutions(uow, substitutions, product_ids, branches):
             raise invalid("El producto original no existe o esta inactivo.")
         if replacement is None or not replacement.active:
             raise invalid("El reemplazo no existe o esta inactivo.")
-        brands = await brand_names(uow, [original, replacement])
-        if not compatible(
-            original, replacement, brands.get(original.brand_id), brands.get(replacement.brand_id)
+        if not similar_product(
+            original,
+            replacement,
+            brands.get(original.brand_id),
+            brands.get(replacement.brand_id),
+            known_brands=aliases,
         ):
-            raise invalid("El reemplazo no conserva tipo, variantes o presentacion.")
+            raise invalid("El reemplazo no pertenece a la misma familia de productos.")
+        branch = branches[item.branch_id]
+        sources = await uow.product_sources.find_by_product(replacement.id)
+        if not any(source.active and source.supermarket_id == branch.supermarket_id for source in sources):
+            raise invalid("El reemplazo no está publicado en esta cadena.")
         replacements[key] = (replacement, brands)
     return replacements
 
@@ -116,7 +133,8 @@ class SuggestSubstitutionsUseCase:
             sources = await uow.product_sources.find_by_supermarket(branch.supermarket_id)
             ids = list({source.product_id for source in sources if source.active})
             products = await uow.products.list_active_by_ids(ids)
-            brands = await brand_names(uow, [*originals.values(), *products])
+            brands = await brand_names(uow)
+            aliases = known_brand_aliases(brands.values())
             pool = {p.id: p for p in products}
             pricing = await load_branch_prices(
                 uow,
@@ -158,22 +176,51 @@ class SuggestSubstitutionsUseCase:
                 compatible_products = [
                     p
                     for p in candidates
-                    if compatible(
-                        original, p, brands.get(original.brand_id), brands.get(p.brand_id)
+                    if similar_product(
+                        original,
+                        p,
+                        brands.get(original.brand_id),
+                        brands.get(p.brand_id),
+                        known_brands=aliases,
                     )
                 ]
+                stale_selected = pricing.stale_selected.get(branch.id, {})
                 eligible = [
                     candidate_payload(
-                        original.id, p, selected[p.id], item.quantity, branch.id, brands
+                        original.id,
+                        p,
+                        selected.get(p.id) or stale_selected[p.id],
+                        item.quantity,
+                        branch.id,
+                        brands,
+                        price_status="fresh" if p.id in selected else "stale",
                     )
                     for p in compatible_products
-                    if p.id in selected
+                    if p.id in selected or p.id in stale_selected
                 ]
                 eligible.sort(
                     key=lambda c: (
+                        c["price_status"] != "fresh",
                         Decimal(c["subtotal"]),
                         c["product"]["normalized_name"].casefold(),
                         c["product"]["id"],
+                    )
+                )
+                displayed_priced = (
+                    [item for item in eligible if item["price_status"] == "fresh"][:3]
+                    + [item for item in eligible if item["price_status"] == "stale"][:2]
+                )
+                unpriced = [
+                    unpriced_candidate_payload(p, branch.id, pricing, brands)
+                    for p in compatible_products
+                    if p.id not in selected and p.id not in stale_selected
+                ]
+                status_order = {"stale": 0, "missing": 1, "suspect": 2}
+                unpriced.sort(
+                    key=lambda candidate: (
+                        status_order[candidate["price_status"]],
+                        candidate["product"]["normalized_name"].casefold(),
+                        candidate["product"]["id"],
                     )
                 )
                 groups.append(
@@ -181,13 +228,12 @@ class SuggestSubstitutionsUseCase:
                         "original": product_payload(original, brands),
                         "quantity": str(item.quantity),
                         "reason": pricing.reasons.get((branch.id, original.id), "missing"),
-                        "candidates": eligible[:3],
+                        "candidates": displayed_priced,
+                        "unpriced_candidates": unpriced[:3],
                         "diagnostics": {
                             "code": (
                                 "available"
                                 if eligible
-                                else "insufficient_attributes"
-                                if signature(original, brands.get(original.brand_id)) is None
                                 else "no_chain_products"
                                 if not pool
                                 else "no_compatible_products"

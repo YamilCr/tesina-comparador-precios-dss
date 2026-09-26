@@ -7,7 +7,7 @@ export function substitutionEmptyMessage(diagnostics?: SubstitutionDiagnostics):
     case 'no_chain_products':
       return 'Esta cadena no tiene publicaciones activas de productos cargadas.'
     case 'no_compatible_products':
-      return 'Ningún producto cargado de esta cadena cumple las reglas de igual tipo, variantes, cantidad y pack. Se admiten diferencias menores de escritura, pero no omitir calificadores o restricciones.'
+      return 'No hay productos de la misma familia cargados en esta cadena.'
     case 'no_suitable_prices': {
       const count = diagnostics.compatible_products
       const reasons: string[] = []
@@ -15,9 +15,9 @@ export function substitutionEmptyMessage(diagnostics?: SubstitutionDiagnostics):
       if (diagnostics.suspect_products) reasons.push(`${diagnostics.suspect_products} con precios anómalos`)
       const missing = count - diagnostics.stale_products - diagnostics.suspect_products
       if (missing > 0) reasons.push(`${missing} sin precio disponible`)
-      return `${count === 1 ? 'Hay 1 producto compatible' : `Hay ${count} productos compatibles`}, pero no ${count === 1 ? 'tiene' : 'tienen'} precios aptos: ${reasons.join('; ')}. Se necesitan precios actualizados y válidos para incluirlos.`
+      return `${count === 1 ? 'Hay 1 producto similar' : `Hay ${count} productos similares`}, pero no ${count === 1 ? 'tiene' : 'tienen'} precios utilizables: ${reasons.join('; ')}. Podés elegirlos, pero no calcular el ahorro hasta tener un precio.`
     }
     default:
-      return 'No hay alternativas compatibles con precio apto.'
+      return 'No hay productos similares disponibles en esta cadena.'
   }
 }

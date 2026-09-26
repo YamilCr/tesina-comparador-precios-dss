@@ -11,6 +11,7 @@ import type {
   RankingResponse,
   Supermarket,
   SubstitutionCandidate,
+  UnpricedSubstitutionCandidate,
 } from '@/types'
 
 const observedAt = '2026-06-01T10:00:00+00:00'
@@ -53,10 +54,10 @@ const supermarkets: Supermarket[] = [
 ]
 
 const branches: Branch[] = [
-  { id: ids.laCentro, nombre: 'Sucursal 024 Alem', direccion: 'Leandro Alem 962', supermercado: 'La Anónima', ciudad: 'Comodoro Rivadavia', latitud: -45.860429, longitud: -67.498914, coordenadas_verificadas: true, fuente_coordenadas: 'La Anónima y OpenStreetMap' },
-  { id: ids.carrefour, nombre: 'Comodoro Centro', direccion: 'Pellegrini 851', supermercado: 'Carrefour', ciudad: 'Comodoro Rivadavia', latitud: -45.861941, longitud: -67.480174, coordenadas_verificadas: true, fuente_coordenadas: 'Carrefour y OpenStreetMap' },
-  { id: ids.changomas, nombre: 'Comodoro', direccion: 'Enrique Girolamo 3100', supermercado: 'Chango Más', ciudad: 'Comodoro Rivadavia', latitud: -45.883411, longitud: -67.524666, coordenadas_verificadas: true, fuente_coordenadas: 'Más Online y verificación cartográfica' },
-  { id: ids.laRada, nombre: 'Rada Tilly', direccion: 'Francisco Luque 1200', supermercado: 'La Anónima', ciudad: 'Rada Tilly', latitud: -45.929773, longitud: -67.572098, coordenadas_verificadas: true, fuente_coordenadas: 'La Anónima y OpenStreetMap' },
+  { id: ids.laCentro, supermercado_id: supermarkets[0].id, nombre: 'Sucursal 024 Alem', direccion: 'Leandro Alem 962', supermercado: 'La Anónima', ciudad: 'Comodoro Rivadavia', latitud: -45.860429, longitud: -67.498914, coordenadas_verificadas: true, fuente_coordenadas: 'La Anónima y OpenStreetMap' },
+  { id: ids.carrefour, supermercado_id: supermarkets[1].id, nombre: 'Comodoro Centro', direccion: 'Pellegrini 851', supermercado: 'Carrefour', ciudad: 'Comodoro Rivadavia', latitud: -45.861941, longitud: -67.480174, coordenadas_verificadas: true, fuente_coordenadas: 'Carrefour y OpenStreetMap' },
+  { id: ids.changomas, supermercado_id: supermarkets[2].id, nombre: 'Comodoro', direccion: 'Enrique Girolamo 3100', supermercado: 'Chango Más', ciudad: 'Comodoro Rivadavia', latitud: -45.883411, longitud: -67.524666, coordenadas_verificadas: true, fuente_coordenadas: 'Más Online y verificación cartográfica' },
+  { id: ids.laRada, supermercado_id: supermarkets[0].id, nombre: 'Rada Tilly', direccion: 'Francisco Luque 1200', supermercado: 'La Anónima', ciudad: 'Rada Tilly', latitud: -45.929773, longitud: -67.572098, coordenadas_verificadas: true, fuente_coordenadas: 'La Anónima y OpenStreetMap' },
 ]
 
 const prices: Record<string, number[]> = {
@@ -71,13 +72,31 @@ const distances: Record<string, Record<string, number>> = {
   [ids.rada]: { [ids.laCentro]: 8.2, [ids.carrefour]: 7.2, [ids.changomas]: 8.6, [ids.laRada]: 0.5 },
 }
 
+const distanceToBranch = (city: City, branch: Branch, request: RankingRequest): number => {
+  if (request.origin_latitude === undefined || request.origin_longitude === undefined) {
+    return distances[city.id][branch.id]
+  }
+  const radians = Math.PI / 180
+  const lat1 = request.origin_latitude * radians
+  const lat2 = branch.latitud * radians
+  const latitudeDifference = (branch.latitud - request.origin_latitude) * radians
+  const longitudeDifference = (branch.longitud - request.origin_longitude) * radians
+  const arc = Math.sin(latitudeDifference / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(longitudeDifference / 2) ** 2
+  return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(arc)))
+}
+
 // Controlled demo: this extra product is absent in La Anonima, without changing the original seed.
 const productPrice = (branchId: string, productId: string): number | undefined => {
   if (productId === substitutionProduct.id) return [ids.laCentro, ids.laRada].includes(branchId) ? undefined : 1550
   return prices[branchId]?.[mockProducts.findIndex((p) => p.id === productId)]
 }
-const mockCompatible = (original: string, replacement: string) => original !== replacement &&
-  [mockProducts[1].id, substitutionProduct.id].includes(original) && [mockProducts[1].id, substitutionProduct.id].includes(replacement)
+const mockCompatible = (original: string, replacement: string) => {
+  const left = catalog.find((product) => product.id === original)
+  const right = catalog.find((product) => product.id === replacement)
+  return Boolean(left && right && left.id !== right.id && left.categoria === right.categoria &&
+    left.nombre.split(' ')[0].toLocaleLowerCase() === right.nombre.split(' ')[0].toLocaleLowerCase())
+}
 const suggestionProduct = (p: Product): SubstitutionCandidate['product'] => ({
   id: p.id, normalized_name: p.nombre, brand_name: p.marca, image_url: p.image_url,
   net_content: p.contenido_neto, unit_measure: p.unidad_medida,
@@ -87,7 +106,7 @@ const mockCandidate = (branchId: string, original: string, replacement: Product,
   product: suggestionProduct(replacement), quantity, unit_price: String(productPrice(branchId, replacement.id)),
   subtotal: String(productPrice(branchId, replacement.id)! * Number(quantity)), currency: 'ARS',
   observed_at: observedAt, price_branch_id: branchId, inferred_from_chain: false,
-  compatibility_reason: 'Mismo tipo, variantes y presentación; otra marca.',
+  compatibility_reason: 'Producto de la misma familia; revisá tipo, variante y presentación antes de elegirlo.',
 })
 
 const paginate = <T>(items: T[]): Paginated<T> => ({
@@ -182,6 +201,11 @@ export const mockApi: DataClient = {
           candidates: catalog.filter((p) => mockCompatible(original.id, p.id) && productPrice(request.branch_id, p.id) !== undefined)
             .map((p) => mockCandidate(request.branch_id, original.id, p, line.quantity))
             .sort((a, b) => Number(a.subtotal) - Number(b.subtotal) || a.product.normalized_name.localeCompare(b.product.normalized_name)).slice(0, 3),
+          unpriced_candidates: catalog.filter((p) => mockCompatible(original.id, p.id) && productPrice(request.branch_id, p.id) === undefined)
+            .slice(0, 3).map((p): UnpricedSubstitutionCandidate => ({
+              product: suggestionProduct(p), price_status: 'missing',
+              compatibility_reason: 'Producto de la misma familia; revisá tipo, variante y presentación antes de elegirlo.',
+            })),
         }
       }),
     }
@@ -193,26 +217,46 @@ export const mockApi: DataClient = {
       quantity: Number(item.quantity),
     }))
     const requestedBranchIds = request.branch_ids ? new Set(request.branch_ids) : null
+    const eligibleBranches = branches.filter((branch) => !requestedBranchIds || requestedBranchIds.has(branch.id))
+    const nearestByChain = new Map<string, Branch>()
+    for (const branch of eligibleBranches) {
+      const current = nearestByChain.get(branch.supermercado_id)
+      if (!current || distanceToBranch(city, branch, request) < distanceToBranch(city, current, request) ||
+        (distanceToBranch(city, branch, request) === distanceToBranch(city, current, request) && branch.id < current.id)) {
+        nearestByChain.set(branch.supermercado_id, branch)
+      }
+    }
     const substitutions = request.substitutions ?? []
     const seen = new Set<string>()
     for (const s of substitutions) {
-      const key = `${s.branch_id}:${s.original_product_id}`
-      if (seen.has(key) || !branches.some((b) => b.id === s.branch_id) ||
+      const selectedBranch = branches.find((b) => b.id === s.branch_id)
+      const key = `${selectedBranch?.supermercado_id}:${s.original_product_id}`
+      if (seen.has(key) || !selectedBranch ||
         (requestedBranchIds && !requestedBranchIds.has(s.branch_id)) ||
         !request.items.some((i) => i.product_id === s.original_product_id) ||
-        !mockCompatible(s.original_product_id, s.replacement_product_id) ||
-        productPrice(s.branch_id, s.replacement_product_id) === undefined) throw new Error('Reemplazo inválido para esta línea y sucursal.')
+        !mockCompatible(s.original_product_id, s.replacement_product_id)) throw new Error('Reemplazo inválido para esta línea y sucursal.')
       seen.add(key)
     }
-    const effective = (branch: string, product: string) => substitutions.find((s) => s.branch_id === branch && s.original_product_id === product)?.replacement_product_id ?? product
-    const evaluated = branches.filter((branch) => !requestedBranchIds || requestedBranchIds.has(branch.id)).map((branch) => {
-      const missing = selected.filter((item) => productPrice(branch.id, effective(branch.id, item.product!.id)) === undefined)
+    const selectionFor = (branch: Branch, product: string) => substitutions.find((s) =>
+      branches.find((candidate) => candidate.id === s.branch_id)?.supermercado_id === branch.supermercado_id && s.original_product_id === product)
+    const effective = (branch: Branch, product: string) => selectionFor(branch, product)?.replacement_product_id ?? product
+    const evaluated = [...nearestByChain.values()].map((branch) => {
+      const missing = selected.filter((item) => productPrice(branch.id, effective(branch, item.product!.id)) === undefined)
       const total = selected.reduce((sum, item) => {
-        return sum + (productPrice(branch.id, effective(branch.id, item.product!.id)) ?? 0) * item.quantity
+        return sum + (productPrice(branch.id, effective(branch, item.product!.id)) ?? 0) * item.quantity
       }, 0)
-      const details = substitutions.filter((s) => s.branch_id === branch.id).map((s) => mockCandidate(branch.id, s.original_product_id,
-        catalog.find((p) => p.id === s.replacement_product_id)!, request.items.find((i) => i.product_id === s.original_product_id)!.quantity))
-      return { branch, total, distance: distances[city.id][branch.id], missing, details }
+      const details: Array<SubstitutionCandidate | UnpricedSubstitutionCandidate> = substitutions
+        .filter((s) => branches.find((candidate) => candidate.id === s.branch_id)?.supermercado_id === branch.supermercado_id)
+        .map((s) => {
+          const product = catalog.find((p) => p.id === s.replacement_product_id)!
+          const quantity = request.items.find((i) => i.product_id === s.original_product_id)!.quantity
+          return productPrice(branch.id, product.id) === undefined
+            ? { product: suggestionProduct(product), price_status: 'missing', original_product_id: s.original_product_id,
+              original_name: catalog.find((p) => p.id === s.original_product_id)?.nombre, quantity,
+              compatibility_reason: 'Producto de la misma familia; sin precio disponible.' }
+            : mockCandidate(branch.id, s.original_product_id, product, quantity)
+        })
+      return { branch, total, distance: distanceToBranch(city, branch, request), missing, details }
     })
     const complete = evaluated.filter((c) => !c.missing.length)
     const maxTotal = Math.max(...complete.map((candidate) => candidate.total))
@@ -231,7 +275,7 @@ export const mockApi: DataClient = {
       .sort((left, right) => right.score - left.score)
       .map(({ candidate, saving, score }, index) => ({
         basket_type: candidate.details.length ? 'substituted' as const : 'original' as const,
-        substitutions: candidate.details,
+        substitutions: candidate.details.filter((item): item is SubstitutionCandidate => 'unit_price' in item),
         posicion: index + 1,
         sucursal: candidate.branch,
         total: candidate.total.toFixed(2),

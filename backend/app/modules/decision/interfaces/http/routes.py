@@ -88,6 +88,7 @@ def _ranking_payload(response) -> dict:
                 "score": str(result.score),
                 "missing_products_count": result.missing_products_count,
                 "basket_type": result.basket_type,
+                "has_outdated_prices": result.has_outdated_prices,
                 "substitutions": result.substitutions,
             }
             for result in response.ranking

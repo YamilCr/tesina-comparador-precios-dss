@@ -14,15 +14,23 @@ from app.shared.infrastructure.database import async_session_factory, async_engi
 from app.shared.infrastructure.sqlalchemy_unit_of_work import SQLAlchemyUnitOfWork
 from app.modules.catalog.infrastructure.persistence import BrandModel
 from app.modules.decision.application.branch_prices import load_branch_prices
-from app.modules.decision.domain.services.substitution_policy import signature, compatible
+from app.modules.decision.domain.services.substitution_policy import (
+    compatible,
+    known_brand_aliases,
+    signature,
+)
 
 
 async def main(query):
     async with async_session_factory() as session:
-        brands = {b.id: b.nombre for b in (await session.scalars(select(BrandModel))).all()}
+        brands = {
+            b.id: b.nombre
+            for b in (await session.scalars(select(BrandModel).where(BrandModel.activo))).all()
+        }
+    aliases = known_brand_aliases(brands.values())
     async with SQLAlchemyUnitOfWork(async_session_factory) as uow:
         products = await uow.products.list_active(limit=10000)
-        sigs = {p.id: signature(p, brands.get(p.brand_id)) for p in products}
+        sigs = {p.id: signature(p, brands.get(p.brand_id), aliases) for p in products}
         branches = await uow.branches.list_active()
         chains = {b.supermarket_id: b for b in branches if b.coordinates_verified}
         coverage = {}
@@ -44,11 +52,31 @@ async def main(query):
             priced = pricing.selected.get(branch.id, {})
             chain_examples = 0
             for p in products:
-                if p.id in priced:
+                original_signature = sigs[p.id]
+                if p.id in priced or original_signature is None:
                     continue
                 for other in products:
-                    if other.id in priced and compatible(
-                        p, other, brands.get(p.brand_id), brands.get(other.brand_id)
+                    replacement_signature = sigs[other.id]
+                    if (
+                        other.id in priced
+                        and replacement_signature is not None
+                        and (
+                            original_signature.amount,
+                            original_signature.unit,
+                            original_signature.pack,
+                        )
+                        == (
+                            replacement_signature.amount,
+                            replacement_signature.unit,
+                            replacement_signature.pack,
+                        )
+                        and compatible(
+                            p,
+                            other,
+                            brands.get(p.brand_id),
+                            brands.get(other.brand_id),
+                            known_brands=aliases,
+                        )
                     ):
                         if chain_examples < 2:
                             examples.append(
@@ -81,7 +109,17 @@ async def main(query):
             matches = [
                 other.normalized_name
                 for other in products
-                if compatible(p, other, brands.get(p.brand_id), brands.get(other.brand_id))
+                if sig is not None
+                and sigs[other.id] is not None
+                and (sig.amount, sig.unit, sig.pack)
+                == (sigs[other.id].amount, sigs[other.id].unit, sigs[other.id].pack)
+                and compatible(
+                    p,
+                    other,
+                    brands.get(p.brand_id),
+                    brands.get(other.brand_id),
+                    known_brands=aliases,
+                )
             ]
             print(
                 json.dumps(
