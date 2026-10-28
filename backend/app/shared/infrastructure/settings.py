@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ingestion_scheduler_batch_size: int = Field(default=10, ge=1, le=100)
     ingestion_scheduler_max_concurrency: int = Field(default=3, ge=1, le=10)
     ingestion_scheduler_lease_seconds: int = Field(default=900, ge=60, le=7200)
-    vector_search_enabled: bool = True
+    vector_search_enabled: bool = False
     vector_embedding_model: str = "intfloat/multilingual-e5-small"
     vector_embedding_dimensions: int = Field(default=384, ge=1, le=4096)
     vector_search_min_score: float = Field(default=0.35, ge=0.0, le=1.0)
