@@ -7,7 +7,7 @@ from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.modules.catalog.domain.ports import ProductSearchIndexPort
-from app.modules.catalog.infrastructure.search import ChromaProductSearchIndex
+from app.modules.catalog.infrastructure.search import PgVectorProductSearchIndex
 from app.shared.infrastructure.database import async_session_factory
 from app.shared.infrastructure.sqlalchemy_unit_of_work import SQLAlchemyUnitOfWork
 
@@ -21,14 +21,14 @@ def get_unit_of_work() -> SQLAlchemyUnitOfWork:
 
 @lru_cache
 def get_product_search_index() -> ProductSearchIndexPort | None:
-    """Returns the configured product search index, if semantic search is enabled."""
+    """Returns the PostgreSQL-backed product search index when enabled."""
     settings = get_settings()
     if not settings.vector_search_enabled:
         return None
-    return ChromaProductSearchIndex(
-        path=settings.vector_store_path,
-        collection_name=settings.vector_collection,
+    return PgVectorProductSearchIndex(
+        session_factory=async_session_factory,
         embedding_model=settings.vector_embedding_model,
+        embedding_dimensions=settings.vector_embedding_dimensions,
     )
 
 

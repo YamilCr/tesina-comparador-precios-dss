@@ -1,5 +1,5 @@
 """Search index adapters for catalog discovery."""
 
-from .chroma_product_search_index import ChromaProductSearchIndex
+from .pgvector_product_search_index import PgVectorProductSearchIndex
 
-__all__ = ["ChromaProductSearchIndex"]
+__all__ = ["PgVectorProductSearchIndex"]

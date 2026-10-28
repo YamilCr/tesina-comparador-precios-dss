@@ -40,7 +40,7 @@ Los `candidates` con `price_status: stale` muestran el ultimo importe y fecha co
 
 Cada grupo incluye `diagnostics`: distingue cadena sin publicaciones activas, ausencia de productos de la misma familia y productos similares sin precio utilizable. Informa cantidad de similares, vencidos, anomalos y dias maximos de vigencia. La interfaz explica la causa real de una lista vacia sin inventar importes ni stock.
 
-La recuperacion considera productos y publicaciones activos de la cadena. Chroma puede proponer IDs mediante `ProductSearchIndexPort`, pero todos se filtran contra los productos reales de esa cadena y la misma politica de compatibilidad. Un fallo vectorial genera un warning y no impide las sugerencias estructuradas. Las publicaciones de la cadena se cargan una vez, evitando una consulta de publicaciones por cada candidato.
+La recuperacion considera productos y publicaciones activos de la cadena. El índice `pgvector` puede proponer IDs mediante `ProductSearchIndexPort`, pero todos se filtran contra los productos reales de esa cadena y la misma politica de compatibilidad. Un fallo vectorial genera un warning y no impide las sugerencias estructuradas. Las publicaciones de la cadena se cargan una vez, evitando una consulta de publicaciones por cada candidato.
 
 ### POST /api/v1/decisions/ranking
 
@@ -88,6 +88,6 @@ Desde `frontend`: `npm test` y `npm run build`.
 
 Los tests HTTP usan SQLite temporal con repositorios reales y un indice que falla deliberadamente. No consultan scrapers, PostgreSQL de produccion ni descargan el modelo. Cubren compatibilidad, referencias por cadena, prioridad directa, cantidades acumuladas, sustituciones manipuladas y cambios entre sugerencia y aceptacion.
 
-Para auditar la base configurada sin modificarla: `uv run python scripts/diagnose_product_substitutions.py --query arroz`. Resume cobertura de precios por cadena, pares aptos y firmas estructuradas. Usa las mismas reglas que el buscador de sustitutos y no consulta Chroma ni scrapers.
+Para auditar la base configurada sin modificarla: `uv run python scripts/diagnose_product_substitutions.py --query arroz`. Resume cobertura de precios por cadena, pares aptos y firmas estructuradas. Usa las mismas reglas que el buscador de sustitutos y no consulta el índice vectorial ni scrapers.
 
 El modo mock incluye el producto adicional **Leche Entera SanCor 1 L**. En Comodoro falta en La Anonima y se ofrece Leche Entera 1 L de otra marca. Permite probar seleccion, recalculo y restauracion sin datos externos. La disponibilidad de este escenario es ficticia y no representa inventario real.

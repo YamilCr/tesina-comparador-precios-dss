@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     """Owns the optional background ingestion scheduler lifecycle."""
     settings = get_settings()
     scheduler: ScrapingScheduler | None = None
-    if settings.ingestion_scheduler_enabled:
+    if settings.ingestion_scheduler_enabled and settings.ingestion_scheduler_embedded_enabled:
         scheduler = ScrapingScheduler(
             lambda: SQLAlchemyUnitOfWork(async_session_factory),
             poll_seconds=settings.ingestion_scheduler_poll_seconds,

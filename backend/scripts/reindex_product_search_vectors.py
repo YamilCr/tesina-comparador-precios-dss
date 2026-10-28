@@ -12,12 +12,12 @@ from app.shared.infrastructure import SQLAlchemyUnitOfWork, async_session_factor
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Reindex active products into the local Chroma search collection."
+        description="Reindex active products into the shared PostgreSQL pgvector index."
     )
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="Delete and recreate the configured Chroma collection before indexing.",
+        help="Delete existing product vectors before indexing active products again.",
     )
     parser.add_argument(
         "--batch-size",
@@ -42,8 +42,7 @@ async def main() -> None:
     await _rebuild(search_index, entries, reset=args.reset, batch_size=args.batch_size)
     print(
         "Indexed "
-        f"{len(entries)} active products into {settings.vector_collection} "
-        f"at {settings.vector_store_path}"
+        f"{len(entries)} active products into the PostgreSQL pgvector index"
     )
 
 
