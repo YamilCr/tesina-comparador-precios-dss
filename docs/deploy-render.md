@@ -1,8 +1,8 @@
 # Despliegue en Render
 
-Esta configuración separa el sitio público, la API y la actualización programada
-de precios. Los dos procesos de backend usan la misma base PostgreSQL y el índice
-semántico queda en `pgvector`, por lo que no depende de archivos locales.
+Esta configuración publica el sitio, la API y la base PostgreSQL. La actualización
+de precios se realiza bajo demanda desde la interfaz: al presionar **Actualizar
+precios**, la API ejecuta los scrapers seleccionados y luego el ETL.
 
 ## Servicios creados por `render.yaml`
 
@@ -10,12 +10,11 @@ semántico queda en `pgvector`, por lo que no depende de archivos locales.
 | --- | --- |
 | `price-dss-frontend` | Compila y publica Vue como sitio estático. |
 | `price-dss-api` | Expone FastAPI y aplica migraciones al iniciar. |
-| `price-dss-ingestion` | Cron que cada diez minutos busca los planes vencidos y ejecuta scraping + ETL. |
 | `price-dss-postgres` | Base relacional, historial de precios y vectores `pgvector`. |
 
-La frecuencia efectiva de cada supermercado no es diez minutos: la determina
-`interval_minutes` de su plan en `scraping_schedule`. El cron solo despierta el
-proceso para reclamar los planes que ya vencieron.
+No se crea un Cron Job ni un worker permanente, por lo que la configuración puede
+usarse sin ese costo. El código de scheduler permanece en el proyecto para una
+etapa posterior, pero queda desactivado en producción.
 
 ## Preparación antes del primer despliegue
 
@@ -31,17 +30,17 @@ proceso para reclamar los planes que ya vencieron.
    habilita la extensión PostgreSQL `vector` y crea `product_search_vector`.
 6. Ejecutar una vez el seed o migrar los datos iniciales al PostgreSQL remoto.
    No cargar datos reales desde SQLite sin antes hacer una copia de seguridad.
-7. En Render, abrir el cron `price-dss-ingestion` y usar **Trigger Run** para
-   validar una ejecución. Luego revisar sus logs y las tablas de auditoría.
+7. Abrir el frontend, seleccionar una o dos fuentes y usar **Actualizar precios**
+   para validar el scraping bajo demanda. Revisar los logs de la API y las tablas
+   de auditoría después de la ejecución.
 
 ## Variables relevantes
 
-En producción, tanto API como cron requieren el mismo `DATABASE_URL`, provisto
-por Render. La API deja desactivado el scheduler embebido; el cron es el único
-proceso que ejecuta actualizaciones automáticas.
+La API recibe `DATABASE_URL` desde Render. El scheduler embebido y las
+actualizaciones automáticas permanecen desactivados.
 
 ```env
-INGESTION_SCHEDULER_ENABLED=true
+INGESTION_SCHEDULER_ENABLED=false
 INGESTION_SCHEDULER_EMBEDDED_ENABLED=false
 VECTOR_SEARCH_ENABLED=true
 VECTOR_EMBEDDING_MODEL=intfloat/multilingual-e5-small
@@ -49,15 +48,14 @@ VECTOR_EMBEDDING_DIMENSIONS=384
 ```
 
 El modelo de embeddings se descarga al iniciar el primer proceso que necesita
-búsqueda semántica. Elegir un plan con memoria suficiente para API y cron,
-especialmente en las fuentes que usan Playwright.
+búsqueda semántica. Elegir un plan con memoria suficiente para la API,ნესpecialmente cuando el usuario ejecute fuentes que usan Playwright.
 
 ## Operación segura
 
-- Empezar con una fuente y un plan diario; incrementar cobertura luego de
-  verificar tiempos, memoria y respuestas de cada supermercado.
-- No ejecutar dos cron jobs que procesen los mismos planes. El plan tiene un
-  lease en la base, pero un único cron simplifica la operación.
+- Empezar con una fuente y permitir al usuario actualizar manualmente; incrementar
+  cobertura luego de verificar tiempos, memoria y respuestas de cada supermercado.
+- Limitar la concurrencia de fuentes para no bloquear la respuesta HTTP ni agotar
+  la memoria de la instancia gratuita.
 - Las tareas largas deben cerrar Playwright correctamente y respetar límites de
   concurrencia, reintentos y los términos de uso de cada sitio.
 - Reindexar vectores tras una carga inicial con:
